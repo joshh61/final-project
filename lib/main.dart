@@ -20,6 +20,8 @@ void main() async {
 
 // Standard Flutter root widget
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -32,6 +34,8 @@ class MyApp extends StatelessWidget {
 
 // Screen that hosts the Mapbox map
 class MapScreen extends StatefulWidget {
+  const MapScreen({super.key});
+
   @override
   State<MapScreen> createState() => _MapScreenState();
 }
@@ -70,8 +74,8 @@ class _MapScreenState extends State<MapScreen> {
       ),
       // FAB triggers the walking route request + drawing
       floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.alt_route),
         onPressed: _showSampleRoute,
+        child: const Icon(Icons.alt_route),
       ),
     );
   }
@@ -81,28 +85,30 @@ class _MapScreenState extends State<MapScreen> {
     _mapboxMap = mapboxMap;
 
     // Create a CircleAnnotationManager to draw circle markers [[Circle annotations](https://docs.mapbox.com/flutter/maps/examples/circle_annotations/)]
-    _circleManager =
-    await mapboxMap.annotations.createCircleAnnotationManager();
+    _circleManager = await mapboxMap.annotations
+        .createCircleAnnotationManager();
 
     // When a circle is tapped, show its stored info
-    _circleManager?.tapEvents(onTap: (circle) {
-      final info = _markerInfo[circle.id];
-      if (info != null) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: Text(info['name']!),
-            content: Text(info['desc']!),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Close"),
-              ),
-            ],
-          ),
-        );
-      }
-    });
+    _circleManager?.tapEvents(
+      onTap: (circle) {
+        final info = _markerInfo[circle.id];
+        if (info != null) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: Text(info['name']!),
+              content: Text(info['desc']!),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Close"),
+                ),
+              ],
+            ),
+          );
+        }
+      },
+    );
   }
 
   // Called when the style is loaded; set up a GeoJSON source + line layer for routes.
@@ -181,12 +187,8 @@ class _MapScreenState extends State<MapScreen> {
     final routeGeoJson = json.encode({
       "type": "FeatureCollection",
       "features": [
-        {
-          "type": "Feature",
-          "properties": {},
-          "geometry": geometry,
-        }
-      ]
+        {"type": "Feature", "properties": {}, "geometry": geometry},
+      ],
     });
 
     // Update the existing GeoJsonSource's "data" property with the new route.
@@ -246,9 +248,6 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
 
-    _markerInfo[circle.id] = {
-      'name': name,
-      'desc': desc,
-    };
+    _markerInfo[circle.id] = {'name': name, 'desc': desc};
   }
 }

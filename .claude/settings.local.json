@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pgrep:*)",
+      "Bash(launchctl list:*)",
+      "Bash(kill:*)",
+      "Bash(code:*)",
+      "Bash(dotnet tool list:*)",
+      "Bash(command -v:*)",
+      "Bash(mdfind:*)",
+      "Bash(openclaw:*)",
+      "Bash(ls:*)",
+      "Bash(brew list:*)",
+      "Bash(brew info:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(ollama list:*)",
+      "Bash(ollama ps:*)",
+      "Bash(sysctl:*)",
+      "Bash(memory_pressure:*)",
+      "Bash(ollama stop:*)",
+      "Bash(env:*)",
+      "Bash(cat:*)",
+      "WebFetch(domain:docs.ollama.com)",
+      "Bash(ollama rm:*)",
+      "Bash(cd \"/Users/jraudy/Files/Spring 2026 /Senior Project/final-project\" && flutter doctor 2>&1)",
+      "mcp__ide__getDiagnostics",
+      "Bash(flutter devices:*)",
+      "Bash(tail:*)",
+      "Bash(firebase:*)"
+    ]
+  }
+}
