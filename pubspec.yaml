@@ -36,6 +36,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   mapbox_maps_flutter: ^2.18.0
   http: ^1.1.0 #for API logic, the openmap docs use html
+  firebase_core: ^4.4.0
+  cloud_firestore: ^6.1.2
+  firebase_auth: ^6.1.4
 
 dev_dependencies:
   flutter_test:
