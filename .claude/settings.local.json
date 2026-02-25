@@ -27,7 +27,8 @@
       "mcp__ide__getDiagnostics",
       "Bash(flutter devices:*)",
       "Bash(tail:*)",
-      "Bash(firebase:*)"
+      "Bash(firebase:*)",
+      "Bash(cd:*)"
     ]
   }
 }
