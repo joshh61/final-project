@@ -16,16 +16,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize Firebase before anything else
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Set your Mapbox public access token before creating any maps.
   // In production, Mapbox recommends passing this via --dart-define. [[Flutter examples](https://docs.mapbox.com/flutter/maps/examples/)]
   //^to be fixed, it is not ideal to push keys publicly (though our repo is private right now)
-  MapboxOptions.setAccessToken(
-    "pk.eyJ1IjoidXRlcG1pbmVyejI1NTIiLCJhIjoiY21sdmcxYWcyMDg5bDNocG82a2N5MmF6biJ9.Pd77daI-yM4ryGhS8G0mlQ",
-  );
+  String accessToken = const String.fromEnvironment("ACCESS_TOKEN");
+  MapboxOptions.setAccessToken(accessToken);
 
   runApp(MyApp());
 }
@@ -75,6 +72,21 @@ class _MapScreenState extends State<MapScreen> {
   static const _routeSourceId = "route-source";
   static const _routeLayerId = "route-layer";
 
+  // OPTIMIZATION: UTRGV center coordinates (adjusted for better centering)
+  static const double utrgvCenterLat = 26.3050;
+  static const double utrgvCenterLng = -98.1740;
+
+  // OPTIMIZATION: Custom radius to restrict map bounds (improves performance)
+  // Only renders tiles within this radius, reducing memory and bandwidth usage
+  static const double horizontalRadius = 0.012; // ~0.85 miles east-west
+  static const double verticalRadius = 0.010; // ~0.7 miles north-south
+
+  // OPTIMIZATION: Calculate bounds from center and radius
+  static const double southwestLat = utrgvCenterLat - verticalRadius;
+  static const double southwestLng = utrgvCenterLng - horizontalRadius;
+  static const double northeastLat = utrgvCenterLat + verticalRadius;
+  static const double northeastLng = utrgvCenterLng + horizontalRadius;
+
   @override
   void dispose() {
     // Cancel the Firestore stream when this screen is removed.
@@ -88,9 +100,9 @@ class _MapScreenState extends State<MapScreen> {
     return Scaffold(
       body: MapWidget(
         cameraOptions: CameraOptions(
-          // Initial camera position over campus
-          center: Point(coordinates: Position(-98.1722, 26.3017)),
-          zoom: 14.5,
+          // Initial camera position over campus (OPTIMIZED: centered on UTRGV)
+          center: Point(coordinates: Position(utrgvCenterLng, utrgvCenterLat)),
+          zoom: 15.5,
         ),
         // Called once the MapboxMap object is ready
         onMapCreated: _onMapCreated,
@@ -113,6 +125,20 @@ class _MapScreenState extends State<MapScreen> {
   // MapboxMap is created; set up annotations, tap handlers, and Firestore listener
   void _onMapCreated(MapboxMap mapboxMap) async {
     _mapboxMap = mapboxMap;
+
+    // OPTIMIZATION: Restrict map to UTRGV campus area for better performance
+    // Prevents loading unnecessary tiles outside campus vicinity
+    await mapboxMap.setBounds(
+      CameraBoundsOptions(
+        bounds: CoordinateBounds(
+          southwest: Point(coordinates: Position(southwestLng, southwestLat)),
+          northeast: Point(coordinates: Position(northeastLng, northeastLat)),
+          infiniteBounds: false,
+        ),
+        maxZoom: 18.0, // Can zoom in to see building details
+        minZoom: 15.0, // Can't zoom out past full campus view
+      ),
+    );
 
     // Create a CircleAnnotationManager to draw circle markers
     _circleManager = await mapboxMap.annotations
@@ -217,9 +243,8 @@ class _MapScreenState extends State<MapScreen> {
     const endLng = -98.17636;
     const endLat = 26.30722;
 
-    // Same public access token you used for the map
-    final accessToken =
-        "pk.eyJ1IjoidXRlcG1pbmVyejI1NTIiLCJhIjoiY21sdmcxYWcyMDg5bDNocG82a2N5MmF6biJ9.Pd77daI-yM4ryGhS8G0mlQ";
+    // Get access token from environment
+    final accessToken = const String.fromEnvironment("ACCESS_TOKEN");
 
     // Directions API URL:
     // - profile: mapbox/walking (pedestrian routing profile) [[routing profile](https://docs.mapbox.com/help/glossary/routing-profile/)]
