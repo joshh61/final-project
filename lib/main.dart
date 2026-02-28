@@ -4,6 +4,8 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'dart:convert';
 // For making HTTPS requests to the Mapbox Directions API
 import 'package:http/http.dart' as http;
+import 'live_navigation.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -69,9 +71,28 @@ class _MapScreenState extends State<MapScreen> {
         },
       ),
       // FAB triggers the walking route request + drawing
-      floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.alt_route),
-        onPressed: _showSampleRoute,
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            heroTag: "route",
+            child: const Icon(Icons.alt_route),
+            onPressed: _showSampleRoute,
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: "liveNav",
+            child: const Icon(Icons.navigation),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LiveNavigationScreen(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
