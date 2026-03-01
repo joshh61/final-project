@@ -1,28 +1,29 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 // For JSON encoding/decoding of the Directions API response
 import 'dart:convert';
 // For making HTTPS requests to the Mapbox Directions API
 import 'package:http/http.dart' as http;
-// Firebase
+import 'live_navigation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'services/auth_service.dart';
+import 'screens/login_screen.dart';
+// Firebase initialization
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-// Our Firestore service and Event model
-import 'services/firestore_service.dart';
-import 'models/event.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase before anything else
+  // Initialize Firebase FIRST
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Set your Mapbox public access token before creating any maps.
   // In production, Mapbox recommends passing this via --dart-define. [[Flutter examples](https://docs.mapbox.com/flutter/maps/examples/)]
   //^to be fixed, it is not ideal to push keys publicly (though our repo is private right now)
-  String accessToken = const String.fromEnvironment("ACCESS_TOKEN");
-  MapboxOptions.setAccessToken(accessToken);
+  MapboxOptions.setAccessToken(
+    "pk.eyJ1IjoidXRlcG1pbmVyejI1NTIiLCJhIjoiY21sdmcxYWcyMDg5bDNocG82a2N5MmF6biJ9.Pd77daI-yM4ryGhS8G0mlQ",
+  );
 
   runApp(MyApp());
 }
@@ -36,7 +37,24 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Campus Vibes',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: MapScreen(),
+      // Check auth state and show appropriate screen
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          // Still loading
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+
+          // User is logged in - show map
+          if (snapshot.hasData) {
+            return MapScreen();
+          }
+
+          // User is NOT logged in - show login screen
+          return LoginScreen();
+        },
+      ),
     );
   }
 }
@@ -52,55 +70,49 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   MapboxMap? _mapboxMap;
 
-  // Manager for circle annotations (your event markers)
+  // Manager for circle annotations (your event markers) [[Circle annotations](https://docs.mapbox.com/flutter/maps/examples/circle_annotations/)]
   CircleAnnotationManager? _circleManager;
 
-  // Firestore service — handles all database operations
-  final FirestoreService _firestoreService = FirestoreService();
+  // Store event info keyed by circle annotation id
+  final Map<String, Map<String, String>> _markerInfo = {};
 
-  // Stream subscription — we listen to Firestore for real-time event updates.
-  // Like an event listener in JS: we need to cancel it when the widget is
-  // removed from the screen, otherwise it keeps listening in the background
-  // and leaks memory.
-  StreamSubscription? _eventsSubscription;
-
-  // Local copy of events from Firestore, used to look up event info
-  // when a circle marker is tapped. Maps circle annotation ID → Event object.
-  final Map<String, Event> _circleToEvent = {};
-
-  // IDs for the route source/layer (must be unique in the style)
+  // IDs for the route source/layer (must be unique in the style) [[Work with layers](https://docs.mapbox.com/flutter/maps/guides/styles/work-with-layers/#add-a-layer-at-runtime)]
   static const _routeSourceId = "route-source";
   static const _routeLayerId = "route-layer";
 
-  // OPTIMIZATION: UTRGV center coordinates (adjusted for better centering)
+  // Map center (adjusted for better campus view)
   static const double utrgvCenterLat = 26.3050;
   static const double utrgvCenterLng = -98.1740;
 
-  // OPTIMIZATION: Custom radius to restrict map bounds (improves performance)
-  // Only renders tiles within this radius, reducing memory and bandwidth usage
-  static const double horizontalRadius = 0.012; // ~0.85 miles east-west
-  static const double verticalRadius = 0.010; // ~0.7 miles north-south
+  // Only render tiles within this radius - improves performance
+  static const double horizontalRadius = 0.012;
+  static const double verticalRadius = 0.010;
 
-  // OPTIMIZATION: Calculate bounds from center and radius
+  // Map boundaries
   static const double southwestLat = utrgvCenterLat - verticalRadius;
   static const double southwestLng = utrgvCenterLng - horizontalRadius;
   static const double northeastLat = utrgvCenterLat + verticalRadius;
   static const double northeastLng = utrgvCenterLng + horizontalRadius;
 
   @override
-  void dispose() {
-    // Cancel the Firestore stream when this screen is removed.
-    // Like removeEventListener() in JS — prevents memory leaks.
-    _eventsSubscription?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: Text('Campus Map'),
+        backgroundColor: Colors.orange,
+        actions: [
+          // Logout button
+          IconButton(
+            icon: Icon(Icons.logout),
+            onPressed: () async {
+              await AuthService().signOut();
+            },
+          ),
+        ],
+      ),
       body: MapWidget(
         cameraOptions: CameraOptions(
-          // Initial camera position over campus (OPTIMIZED: centered on UTRGV)
+          // Initial camera position over campus
           center: Point(coordinates: Position(utrgvCenterLng, utrgvCenterLat)),
           zoom: 15.5,
         ),
@@ -115,19 +127,35 @@ class _MapScreenState extends State<MapScreen> {
         },
       ),
       // FAB triggers the walking route request + drawing
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showSampleRoute,
-        child: const Icon(Icons.alt_route),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            heroTag: "route",
+            onPressed: _showSampleRoute,
+            child: const Icon(Icons.alt_route),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: "liveNav",
+            child: const Icon(Icons.navigation),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LiveNavigationScreen()),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
 
-  // MapboxMap is created; set up annotations, tap handlers, and Firestore listener
+  // MapboxMap is created; set up annotations and tap handlers
   void _onMapCreated(MapboxMap mapboxMap) async {
     _mapboxMap = mapboxMap;
 
-    // OPTIMIZATION: Restrict map to UTRGV campus area for better performance
-    // Prevents loading unnecessary tiles outside campus vicinity
+    // Keep map focused on campus area - don't load unnecessary tiles
     await mapboxMap.setBounds(
       CameraBoundsOptions(
         bounds: CoordinateBounds(
@@ -135,27 +163,25 @@ class _MapScreenState extends State<MapScreen> {
           northeast: Point(coordinates: Position(northeastLng, northeastLat)),
           infiniteBounds: false,
         ),
-        maxZoom: 18.0, // Can zoom in to see building details
-        minZoom: 15.0, // Can't zoom out past full campus view
+        maxZoom: 18.0,
+        minZoom: 15.0,
       ),
     );
 
-    // Create a CircleAnnotationManager to draw circle markers
+    // Create a CircleAnnotationManager to draw circle markers [[Circle annotations](https://docs.mapbox.com/flutter/maps/examples/circle_annotations/)]
     _circleManager = await mapboxMap.annotations
         .createCircleAnnotationManager();
 
-    // When a circle is tapped, look up the Event from our local map
-    // and show its info. This used to use _markerInfo (raw strings),
-    // now it uses _circleToEvent (proper Event objects from Firestore).
+    // When a circle is tapped, show its stored info
     _circleManager?.tapEvents(
       onTap: (circle) {
-        final event = _circleToEvent[circle.id];
-        if (event != null) {
+        final info = _markerInfo[circle.id];
+        if (info != null) {
           showDialog(
             context: context,
             builder: (_) => AlertDialog(
-              title: Text(event.name),
-              content: Text(event.description),
+              title: Text(info['name']!),
+              content: Text(info['desc']!),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
@@ -167,40 +193,6 @@ class _MapScreenState extends State<MapScreen> {
         }
       },
     );
-
-    // Start listening to Firestore for events.
-    // Every time the 'events' collection changes (add/update/delete),
-    // this callback fires with the full updated list of events.
-    // We clear all existing circles and redraw them from the new data.
-    _eventsSubscription = _firestoreService.getEventsStream().listen((events) {
-      _redrawMarkers(events);
-    });
-  }
-
-  // Clears all circle markers and redraws them from the Firestore data.
-  // Called every time the Firestore stream emits new data.
-  Future<void> _redrawMarkers(List<Event> events) async {
-    if (_circleManager == null) return;
-
-    // Remove all existing circles from the map
-    await _circleManager!.deleteAll();
-    _circleToEvent.clear();
-
-    // Draw a circle for each event from Firestore
-    for (final event in events) {
-      final circle = await _circleManager!.create(
-        CircleAnnotationOptions(
-          geometry: Point(
-            coordinates: Position(event.longitude, event.latitude),
-          ),
-          circleColor: Colors.blue.toARGB32(),
-          circleRadius: 12.0,
-          isDraggable: false,
-        ),
-      );
-      // Map this circle's ID to its Event so we can look it up on tap
-      _circleToEvent[circle.id] = event;
-    }
   }
 
   // Called when the style is loaded; set up a GeoJSON source + line layer for routes.
@@ -222,7 +214,7 @@ class _MapScreenState extends State<MapScreen> {
       LineLayer(
         id: _routeLayerId,
         sourceId: _routeSourceId,
-        lineColor: Colors.blue.toARGB32(),
+        lineColor: Colors.blue.value,
         lineWidth: 4.0,
       ),
     );
@@ -243,8 +235,9 @@ class _MapScreenState extends State<MapScreen> {
     const endLng = -98.17636;
     const endLat = 26.30722;
 
-    // Get access token from environment
-    final accessToken = const String.fromEnvironment("ACCESS_TOKEN");
+    // Same public access token you used for the map
+    final accessToken =
+        "pk.eyJ1IjoidXRlcG1pbmVyejI1NTIiLCJhIjoiY21sdmcxYWcyMDg5bDNocG82a2N5MmF6biJ9.Pd77daI-yM4ryGhS8G0mlQ";
 
     // Directions API URL:
     // - profile: mapbox/walking (pedestrian routing profile) [[routing profile](https://docs.mapbox.com/help/glossary/routing-profile/)]
@@ -316,7 +309,7 @@ class _MapScreenState extends State<MapScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              _saveEvent(coords, name, desc);
+              _addCircle(coords, name, desc);
               Navigator.pop(context);
             },
             child: const Text("Add"),
@@ -326,17 +319,19 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  // Save event to Firestore instead of just storing in memory.
-  // We DON'T need to manually draw the circle here anymore —
-  // the Firestore stream listener (_redrawMarkers) will pick up
-  // the new event automatically and draw it for us.
-  Future<void> _saveEvent(Position coords, String name, String desc) async {
-    final event = Event(
-      name: name,
-      description: desc,
-      latitude: coords.lat.toDouble(),
-      longitude: coords.lng.toDouble(),
+  // Create a circle annotation for the event and store its metadata
+  Future<void> _addCircle(Position coords, String name, String desc) async {
+    if (_circleManager == null) return;
+
+    final circle = await _circleManager!.create(
+      CircleAnnotationOptions(
+        geometry: Point(coordinates: coords),
+        circleColor: Colors.blue.value,
+        circleRadius: 12.0,
+        isDraggable: false,
+      ),
     );
-    await _firestoreService.addEvent(event);
+
+    _markerInfo[circle.id] = {'name': name, 'desc': desc};
   }
 }
