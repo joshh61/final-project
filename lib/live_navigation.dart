@@ -92,7 +92,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
       LineLayer(
         id: _routeLayerId,
         sourceId: _routeSourceId,
-        lineColor: Colors.blue.value, // line color
+        lineColor: Colors.blue.toARGB32(), // line color
         lineWidth: 5.0, // line thickness
       ),
     );
