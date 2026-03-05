@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'home_screen.dart';
+
 // For JSON encoding/decoding of the Directions API response
 import 'dart:convert';
 // For making HTTPS requests to the Mapbox Directions API
@@ -8,7 +10,7 @@ import 'package:http/http.dart' as http;
 import 'live_navigation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'services/auth_service.dart';
-import 'screens/login_screen.dart';
+import 'login_screen.dart';
 // Firebase initialization
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -52,7 +54,7 @@ class MyApp extends StatelessWidget {
 
           // User is logged in - show map
           if (snapshot.hasData) {
-            return MapScreen();
+            return HomeScreen();
           }
 
           // User is NOT logged in - show login screen
