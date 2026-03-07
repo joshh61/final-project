@@ -7,7 +7,14 @@ import 'package:http/http.dart'
 import 'dart:convert'; //JSON parsing
 
 class LiveNavigationScreen extends StatefulWidget {
-  const LiveNavigationScreen({super.key});
+  final double destLat;
+  final double destLng;
+
+  const LiveNavigationScreen({
+    super.key,
+    required this.destLat,
+    required this.destLng,
+  });
 
   @override
   State<LiveNavigationScreen> createState() => _LiveNavigationScreenState();
@@ -18,11 +25,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
 
   static const _routeSourceId = "live-route-source";
   static const _routeLayerId = "live-route-layer";
-
-  //  Destination your requested point
-  //26.18878° N, 98.23584° W test coords, la plaza mall mcallen
-  static const double destLat = 26.18878;
-  static const double destLng = -98.23584;
 
   //  Fallback start location (near campus) in case device location is far or unavailable
   static const double fallbackStartLat = 26.30597;
@@ -35,11 +37,17 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Live Walking Navigation")),
+      appBar: AppBar(
+        title: const Text("Live Walking Navigation"),
+        backgroundColor: Colors.orange,
+        foregroundColor: Colors.white,
+      ),
       body: MapWidget(
         // Initial camera options: center at destination, zoom level 15
         cameraOptions: CameraOptions(
-          center: Point(coordinates: Position(destLng, destLat)),
+          center: Point(
+            coordinates: Position(widget.destLng, widget.destLat),
+          ),
           zoom: 15,
         ),
         onMapCreated: _onMapCreated, // called when map object is ready
@@ -114,8 +122,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
       final distanceMeters = geo.Geolocator.distanceBetween(
         position.latitude,
         position.longitude,
-        destLat,
-        destLng,
+        widget.destLat,
+        widget.destLng,
       );
 
       if (distanceMeters <= 20000) {
@@ -124,7 +132,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
         startLng = position.longitude;
       } else {
         print(
-          //dummy fallback option in case too far
           "Device too far from destination (${(distanceMeters / 1000).toStringAsFixed(1)} km). Using fallback start point.",
         );
       }
@@ -135,7 +142,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
     //Build the Mapbox Directions API URL
     final url =
         "https://api.mapbox.com/directions/v5/mapbox/walking/"
-        "$startLng,$startLat;$destLng,$destLat"
+        "$startLng,$startLat;${widget.destLng},${widget.destLat}"
         "?geometries=geojson&access_token=$accessToken";
 
     //Send HTTP GET request

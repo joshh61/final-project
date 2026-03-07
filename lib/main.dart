@@ -1,16 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'home_screen.dart';
+import 'screens/home_screen.dart';
 
 // For JSON encoding/decoding of the Directions API response
 import 'dart:convert';
 // For making HTTPS requests to the Mapbox Directions API
 import 'package:http/http.dart' as http;
-import 'live_navigation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'services/auth_service.dart';
-import 'login_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/event_detail_screen.dart';
 // Firebase initialization
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -145,27 +145,11 @@ class _MapScreenState extends State<MapScreen> {
           _showAddDialog(coords);
         },
       ),
-      // FAB triggers the walking route request + drawing
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton(
-            heroTag: "route",
-            onPressed: _showSampleRoute,
-            child: const Icon(Icons.alt_route),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: "liveNav",
-            child: const Icon(Icons.navigation),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LiveNavigationScreen()),
-              );
-            },
-          ),
-        ],
+      // Sample route FAB for demo purposes
+      floatingActionButton: FloatingActionButton(
+        heroTag: "route",
+        onPressed: _showSampleRoute,
+        child: const Icon(Icons.alt_route),
       ),
     );
   }
@@ -191,23 +175,14 @@ class _MapScreenState extends State<MapScreen> {
     _circleManager = await mapboxMap.annotations
         .createCircleAnnotationManager();
 
-    // When a circle is tapped, look up the Event from Firestore data
+    // When a circle is tapped, navigate to the EventDetailScreen
     _circleManager?.tapEvents(
       onTap: (circle) {
         final event = _circleToEvent[circle.id];
         if (event != null) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              title: Text(event.name),
-              content: Text(event.description),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Close"),
-                ),
-              ],
-            ),
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
           );
         }
       },
