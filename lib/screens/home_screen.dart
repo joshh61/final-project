@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'event_screen.dart';
+import 'calendar_screen.dart';
 import '../main.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<Widget> _screens = [
     const EventsScreen(),
     const MapScreen(),
+    const CalendarScreen(),
   ];
 
   @override
@@ -38,6 +40,10 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.map),
             label: 'Map',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_month),
+            label: 'Calendar',
           ),
         ],
       ),
