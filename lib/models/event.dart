@@ -19,6 +19,28 @@ class Event {
   // but we convert it to Dart's DateTime for easier use in the app.
   final DateTime createdAt;
 
+  // How many unique users have hyped this event.
+  final int hypeCount;
+
+  // The list of Firebase Auth UIDs that have already hyped this event.
+  // We use this to prevent the same user from hyping more than once.
+  // Stored as an array field in Firestore.
+  final List<String> hypedBy;
+
+  // How many users have RSVP'd to this event.
+  // The actual attendee list is stored in a Firestore subcollection:
+  //   events/{eventId}/rsvps/{userId}
+  // We keep a count here so we can display it without reading the subcollection.
+  final int rsvpCount;
+
+  // Cached average star rating (1–5). Recomputed and stored on the event
+  // document each time a review is submitted via a Firestore transaction.
+  final double averageRating;
+
+  // Number of reviews submitted. Kept alongside averageRating so the card
+  // can show "4.2 ★ (12)" without reading the reviews subcollection.
+  final int reviewCount;
+
   Event({
     this.id,
     required this.name,
@@ -26,6 +48,11 @@ class Event {
     required this.latitude,
     required this.longitude,
     DateTime? createdAt,
+    this.hypeCount = 0,
+    this.hypedBy = const [],
+    this.rsvpCount = 0,
+    this.averageRating = 0.0,
+    this.reviewCount = 0,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Converts this Event object into a Map that Firestore can store.
@@ -40,6 +67,11 @@ class Event {
       'latitude': latitude,
       'longitude': longitude,
       'createdAt': Timestamp.fromDate(createdAt),
+      'hypeCount': hypeCount,
+      'hypedBy': hypedBy,
+      'rsvpCount': rsvpCount,
+      'averageRating': averageRating,
+      'reviewCount': reviewCount,
     };
   }
 
@@ -60,6 +92,11 @@ class Event {
       createdAt: data['createdAt'] != null
           ? (data['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
+      hypeCount: (data['hypeCount'] ?? 0) as int,
+      hypedBy: List<String>.from(data['hypedBy'] ?? []),
+      rsvpCount: (data['rsvpCount'] ?? 0) as int,
+      averageRating: (data['averageRating'] ?? 0).toDouble(),
+      reviewCount: (data['reviewCount'] ?? 0) as int,
     );
   }
 }
