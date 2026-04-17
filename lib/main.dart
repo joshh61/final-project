@@ -145,12 +145,6 @@ class _MapScreenState extends State<MapScreen> {
           _showAddDialog(coords);
         },
       ),
-      // Sample route FAB for demo purposes
-      floatingActionButton: FloatingActionButton(
-        heroTag: "route",
-        onPressed: _showSampleRoute,
-        child: const Icon(Icons.alt_route),
-      ),
     );
   }
 
@@ -239,70 +233,6 @@ class _MapScreenState extends State<MapScreen> {
         lineColor: Colors.blue.toARGB32(),
         lineWidth: 4.0,
       ),
-    );
-  }
-
-  // Heart of the walking path logic:
-  // - Call Mapbox Directions API with the walking profile
-  // - Extract the route geometry (GeoJSON LineString)
-  // - Wrap it in a FeatureCollection
-  // - Feed it into the GeoJsonSource so the LineLayer draws it
-  Future<void> _showSampleRoute() async {
-    if (_mapboxMap == null) return;
-
-    // Hard-coded origin and destination (lng, lat) near campus
-    const startLng = -98.17355;
-    const startLat = 26.30597;
-
-    const endLng = -98.17636;
-    const endLat = 26.30722;
-
-    // Same public access token you used for the map
-    final accessToken =
-        "pk.eyJ1IjoidXRlcG1pbmVyejI1NTIiLCJhIjoiY21sdmcxYWcyMDg5bDNocG82a2N5MmF6biJ9.Pd77daI-yM4ryGhS8G0mlQ";
-
-    // Directions API URL:
-    // - profile: mapbox/walking (pedestrian routing profile) [[routing profile](https://docs.mapbox.com/help/glossary/routing-profile/)]
-    // - coordinates: startLng,startLat;endLng,endLat
-    // - geometries=geojson so the route geometry is returned as a GeoJSON LineString
-    //   which you can plug directly into a GeoJSON source. [[Directions playground](https://docs.mapbox.com/playground/directions/)]
-    final url =
-        "https://api.mapbox.com/directions/v5/mapbox/walking/"
-        "$startLng,$startLat;$endLng,$endLat"
-        "?geometries=geojson&access_token=$accessToken";
-
-    // Make the HTTP GET request to the Directions API
-    final response = await http.get(Uri.parse(url));
-
-    if (response.statusCode != 200) {
-      // Basic error logging if the API call fails
-      print("Directions API error: ${response.body}");
-      return;
-    }
-
-    // Parse the JSON response
-    final data = json.decode(response.body);
-
-    // Directions response structure:
-    // routes[0].geometry holds the route geometry.
-    // With geometries=geojson, this is a GeoJSON LineString object. [[Navigation APIs webinar](https://www.youtube.com/watch?v=kfrR0OLBcNE)]
-    final geometry = data["routes"][0]["geometry"];
-
-    // Wrap the LineString geometry in a FeatureCollection so it matches
-    // what a GeoJsonSource expects. [[GeoJSON line example](https://docs.mapbox.com/flutter/maps/examples/geojson_line/)]
-    final routeGeoJson = json.encode({
-      "type": "FeatureCollection",
-      "features": [
-        {"type": "Feature", "properties": {}, "geometry": geometry},
-      ],
-    });
-
-    // Update the existing GeoJsonSource's "data" property with the new route.
-    // The LineLayer is already wired to this source, so the map updates automatically. [[Work with layers](https://docs.mapbox.com/flutter/maps/guides/styles/work-with-layers/#add-a-layer-at-runtime)]
-    await _mapboxMap!.style.setStyleSourceProperty(
-      _routeSourceId,
-      "data",
-      routeGeoJson,
     );
   }
 
