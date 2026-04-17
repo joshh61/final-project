@@ -38,6 +38,8 @@ import '../config/app_config.dart';                        // Mapbox token + dev
 import '../logic/navigation_access_evaluator.dart';        // GPS permission logic
 import '../services/app_logger.dart';                      // debug logging
 
+import 'package:flutter/services.dart'; // for rootBundle and ByteData (editing live nav icon pucks)
+
 // ─── NavigationPhase enum ─────────────────────────────────────────────────────
 //
 // An enum (short for "enumeration") is a type that can only be one of a fixed
@@ -108,6 +110,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
   // It starts as null because the map is not ready yet when initState() runs.
   // The map calls _onMapCreated() once it is set up, which fills this in.
   MapboxMap? _mapboxMap;
+
+  String _currentIcon = "assets/pic1a.png";
 
   // --- GPS STREAM SUBSCRIPTION ---
   // A Stream is like a river of values over time. Geolocator.getPositionStream()
@@ -269,6 +273,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
         title: Text(widget.eventName), // widget.eventName reads from the parent widget
         backgroundColor: Colors.orange,
         foregroundColor: Colors.white,
+      ),
+
+      floatingActionButton: FloatingActionButton( //button to to toggle icons
+        onPressed: _chooseIcon,
+        child: const Icon(Icons.image),
       ),
 
       // Stack layers its children like a stack of papers.
@@ -1128,6 +1137,34 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
         stackTrace: stackTrace,
       );
     }
+  }
+
+  void _chooseIcon() async { //function to toggle between images/icons
+    if (_mapboxMap == null) return; // Safety check: don't do anything if the Mapbox map hasn't been initialized yet
+
+    setState(() {
+      _currentIcon = _currentIcon == "assets/pic1a.png"
+          ? "assets/pic1b.png"
+          : "assets/pic1a.png"; // otherwise, switch back to OG
+    });
+
+    // Load the selected image file from the app's assets
+    final ByteData bytes = await rootBundle.load(_currentIcon);
+
+    // Convert the loaded image to a Uint8List, which Mapbox requires (MUST)
+    final Uint8List imageData = bytes.buffer.asUint8List();
+
+    _mapboxMap!.location.updateSettings(
+      LocationComponentSettings(
+        enabled: true, // ensure the location puck is visible
+        puckBearingEnabled: true, // make the puck rotate with device heading
+        locationPuck: LocationPuck(
+          locationPuck2D: LocationPuck2D(
+            topImage: imageData, // set the top image of the puck to our selected icon (note that there are shadow images too, hence top for this image)
+          ),
+        ),
+      ),
+    );
   }
 
   // ─── STATUS HELPERS ───────────────────────────────────────────────────────────
