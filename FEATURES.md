@@ -1,363 +1,317 @@
-# Campus Vibes — Feature Implementation Guide
+# Campus Vibes — Complete Feature Tutorial
 
-This file walks through every feature added to the Campus Vibes app in implementation order.
-Each section explains the concept first, then shows the exact code needed to build it from scratch.
-The comments follow the same teaching style as `campus_vibes_learn` — explaining the **why**,
-not just the **what**.
+**Who this is for:** Anyone building or studying the Campus Vibes Flutter app with
+little to no Dart experience. Every concept is explained from the ground up.
+
+**What this covers:** Every file, every feature, and every major code decision — from
+the data model all the way through to live GPS walking navigation.
+
+**How to read it:** Work top to bottom. Each section builds on the one before it.
+Code blocks contain the real code from the project, with comments explaining every line.
 
 ---
 
 ## Table of Contents
 
-1. [Setup — Dependencies](#1-setup--dependencies)
-2. [Live Navigation — What Changed and Why](#2-live-navigation--what-changed-and-why)
-3. [Hype System](#3-hype-system-25)
-4. [RSVPs](#4-rsvps-10)
-5. [Share Events](#5-share-events-11)
-6. [Save / Favorites](#6-save--favorites-7)
-7. [Calendar View](#7-calendar-view-5)
-8. [Rating System](#8-rating-system-23)
+1. [Dart Basics You Need First](#1-dart-basics-you-need-first)
+2. [Project Setup — pubspec.yaml](#2-project-setup--pubspecyaml)
+3. [The Event Model](#3-the-event-model)
+4. [FirestoreService — The Database Layer](#4-firestoreservice--the-database-layer)
+5. [App Entry Point — main.dart](#5-app-entry-point--maindart)
+6. [Home Screen — Bottom Navigation](#6-home-screen--bottom-navigation)
+7. [Events Screen — The List View](#7-events-screen--the-list-view)
+8. [Event Detail Screen](#8-event-detail-screen)
+9. [Calendar Screen](#9-calendar-screen)
+10. [Live Navigation](#10-live-navigation)
 
 ---
 
-## 1. Setup — Dependencies
+## 1. Dart Basics You Need First
 
-Open `pubspec.yaml` and add these two packages under `dependencies`:
+Before touching any file, here are the Dart concepts that appear everywhere in this project.
+You will see these constantly — understanding them unlocks everything else.
+
+### Variables and Types
+
+```dart
+// A "type" tells Dart what kind of data a variable holds.
+
+String name = "Campus Vibes";   // String = text
+int count   = 5;                 // int = whole number (no decimals)
+double lat  = 26.3036;           // double = number with decimals
+bool isOpen = true;              // bool = true or false
+
+// The ? after a type means the variable CAN be null (empty/missing).
+// Without ?, Dart guarantees the variable always has a value.
+String? nickname;   // this is allowed to be null
+String realName;    // this MUST always have a value — Dart won't compile if it might be null
+```
+
+### final vs var
+
+```dart
+// final = set once, never changes after that.
+// Use final for anything you don't plan to reassign.
+final String appName = "Campus Vibes"; // can't do appName = "Other" later
+
+// var = can change at any time.
+var count = 0;
+count = 1; // perfectly fine
+```
+
+### Functions and async/await
+
+```dart
+// A regular function runs top to bottom and returns immediately.
+int add(int a, int b) {
+  return a + b;
+}
+
+// An async function can "pause" while waiting for slow work (network, GPS, database).
+// Instead of freezing the whole app, Dart suspends just this function.
+// await = "wait here for this to finish before moving to the next line."
+// Future<String> = "this function will eventually give back a String"
+Future<String> fetchEventName() async {
+  final result = await someSlowNetworkCall(); // pauses HERE, app keeps running
+  return result;                              // resumes here after the call finishes
+}
+```
+
+### The ? . and ! operators
+
+```dart
+// ?. = "only call this if the value is not null, otherwise give back null"
+String? name = null;
+int? length = name?.length; // safe — gives null instead of crashing
+
+// ! = "I promise this is not null right now" (crashes if you're wrong)
+String definitelyHasValue = name!; // throws an error if name is null
+
+// ?? = "if this is null, use the value on the right instead"
+String display = name ?? "Unknown"; // "Unknown" if name is null
+```
+
+### Lists, Maps, and Sets
+
+```dart
+// List = ordered collection. Like an array.
+List<String> names = ["Alice", "Bob", "Carlos"];
+names[0]; // "Alice" — index starts at 0
+
+// Map = key → value pairs. Like a dictionary.
+Map<String, int> ages = {"Alice": 20, "Bob": 22};
+ages["Alice"]; // 20
+
+// Set = unordered collection with NO duplicates. .contains() is very fast.
+Set<String> savedIds = {"abc123", "xyz789"};
+savedIds.contains("abc123"); // true — O(1), instant regardless of size
+```
+
+### StatelessWidget vs StatefulWidget
+
+```dart
+// StatelessWidget = displays fixed data. No memory of changes.
+// Use when the screen never updates on its own.
+class MyLabel extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Text("Hello");
+  }
+}
+
+// StatefulWidget = has STATE — data that changes over time.
+// When setState() is called, Flutter rebuilds the widget with new data.
+// Use when the screen needs to react to taps, streams, or async results.
+class MyCounter extends StatefulWidget {
+  @override
+  State<MyCounter> createState() => _MyCounterState();
+}
+
+class _MyCounterState extends State<MyCounter> {
+  int count = 0; // this is the "state" — it can change
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: () => setState(() => count++), // rebuild with new count
+      child: Text("$count"),
+    );
+  }
+}
+```
+
+### Streams and StreamSubscription
+
+```dart
+// A Stream is a continuous sequence of values over time.
+// Think of it like a TV channel — it keeps broadcasting new values.
+// Firestore uses Streams to send your app live updates whenever the database changes.
+
+Stream<int> countStream; // a stream that emits integers over time
+
+// StreamSubscription = the "remote control" for a stream.
+// .listen() starts watching the stream and gives you each value as it arrives.
+// You MUST cancel the subscription in dispose() or the stream keeps running forever.
+StreamSubscription<int>? subscription;
+
+subscription = countStream.listen((value) {
+  print(value); // runs every time the stream emits a new value
+});
+
+// In dispose():
+subscription?.cancel(); // stop listening, free resources
+```
+
+---
+
+## 2. Project Setup — pubspec.yaml
+
+`pubspec.yaml` is the configuration file for the entire Flutter project.
+It lists the app's name, version, and every external package ("dependency") the app uses.
+
+**Where:** root of the project — `pubspec.yaml`
+**When:** edit this file whenever you add a new package or asset (image, font, etc.)
+**Why:** Flutter won't know a package exists until it's listed here. After editing,
+run `flutter pub get` to download any new packages.
 
 ```yaml
+name: final_project
+description: "Campus Vibes — UTRGV campus event discovery app"
+
+environment:
+  sdk: ^3.11.0   # minimum Dart version required
+
 dependencies:
   flutter:
     sdk: flutter
 
-  # --- existing packages ---
-  firebase_core: ^4.4.0
-  cloud_firestore: ^6.1.2
-  firebase_auth: ^6.1.4
-  geolocator: ^10.1.0
-  intl: ^0.20.2
+  # --- MAP ---
+  # mapbox_maps_flutter: renders the interactive campus map and GPS puck
   mapbox_maps_flutter: 2.18.0
+
+  # --- FIREBASE ---
+  # Firebase is Google's cloud backend. We use three parts of it:
+  firebase_core: ^4.4.0       # required base package — always needed with Firebase
+  cloud_firestore: ^6.1.2     # the database (stores events, RSVPs, reviews, etc.)
+  firebase_auth: ^6.1.4       # handles login/logout with email + password
+
+  # --- LOCATION ---
+  # geolocator: reads the device GPS and checks/requests location permission
+  geolocator: ^10.1.0
+
+  # --- NETWORKING ---
+  # http: makes HTTP GET requests to the Mapbox Directions API
   http: ^1.1.0
 
-  # --- new packages added for features ---
+  # --- DATE FORMATTING ---
+  # intl: formats DateTime objects into readable strings like "Apr 14, 2026 – 7:30 PM"
+  intl: ^0.20.2
 
-  # share_plus — opens the native share sheet (iOS/Android) so users can
-  # send event details via iMessage, WhatsApp, email, etc.
+  # --- SHARING ---
+  # share_plus: opens the native iOS/Android share sheet so users can
+  # send event info via Messages, WhatsApp, email, etc.
   share_plus: ^10.1.4
 
-  # table_calendar — renders a full monthly calendar widget with dot
-  # indicators on days that have events. Much easier than building one manually.
+  # --- CALENDAR ---
+  # table_calendar: renders a monthly calendar grid with dot indicators
+  # on days that have events. Building this from scratch would take days.
   table_calendar: ^3.1.2
-```
 
-Then run:
+flutter:
+  uses-material-design: true
 
-```bash
-flutter pub get
-```
-
----
-
-## 2. Live Navigation — What Changed and Why
-
-### Background
-
-The project originally had a large "one-shot" navigation file (~1,248 lines) that was built
-during an earlier development phase. It worked, but it contained several features that were
-either not needed for the final app or made the code harder to follow as a learning resource:
-
-- A **debug panel** (a collapsible overlay showing raw GPS coordinates, HTTP status codes,
-  and internal timing values). Useful during development, but confusing for users and
-  not part of the final product.
-- A **"recenter" floating action button** that re-locked the camera to the user's puck
-  after the user manually panned the map. Removed to simplify the UI — the camera
-  always follows the puck once tracking starts.
-- **Dark/light theme sync** (`didChangeDependencies` + `_applyThemeToMap`). The map
-  style was being updated whenever the phone switched between dark and light mode.
-  Removed because Campus Vibes uses a fixed orange theme and doesn't support dark mode.
-- **Scroll detection** (`_onUserScroll`) that tracked when the user panned the map
-  so the recenter button knew when to appear. Removed along with the recenter button.
-- Several **internal flags** (`_isFollowingPuck`, `_isTransitioningCamera`,
-  `_lastAppliedBrightness`, `_lastHttpStatus`, `_startMode`, `_lastRouteUpdatedAt`)
-  that supported the removed features above.
-
-The stripped-down version (~750 lines, now fully commented in `lib/screens/live_navigation.dart`)
-keeps everything that actually matters for a walking navigation experience:
-
-- GPS permission checking
-- Mapbox Directions API fetch with retry + exponential backoff
-- Real-time route trimming as the user walks
-- Off-route detection and automatic rerouting
-- Arrival detection
-
----
-
-### What Was Removed — Line by Line
-
-Below is a summary of every removal so you could reconstruct the original if needed,
-or understand exactly what the current file is *not* doing.
-
-#### 1. `import 'package:flutter/foundation.dart'`
-```dart
-// REMOVED — was only needed for kDebugMode used in the debug panel.
-// kDebugMode is true when running a debug build, false in release.
-import 'package:flutter/foundation.dart';
-```
-
-#### 2. Debug panel state variables
-```dart
-// REMOVED — these fields tracked whether the debug overlay was visible
-// and what values to display inside it.
-bool _showDebugPanel = false;
-String _lastHttpStatus = '';       // last Directions API HTTP status code
-String _startMode = '';            // 'device' or 'fallback'
-DateTime? _lastRouteUpdatedAt;     // timestamp of last successful route fetch
-```
-
-#### 3. Dark/light theme sync
-```dart
-// REMOVED — this lifecycle method fired every time the system brightness changed
-// (phone switches to dark mode). It called _applyThemeToMap() to reload the map style.
-@override
-void didChangeDependencies() {
-  super.didChangeDependencies();
-  final brightness = Theme.of(context).brightness;
-  if (_mapboxMap != null && brightness != _lastAppliedBrightness) {
-    _applyThemeToMap(brightness);
-    _lastAppliedBrightness = brightness;
-  }
-}
-
-// REMOVED — reloaded the Mapbox style URI based on dark/light mode.
-Future<void> _applyThemeToMap(Brightness brightness) async {
-  final styleUri = brightness == Brightness.dark
-      ? MapboxStyles.DARK
-      : MapboxStyles.STANDARD;
-  await _mapboxMap?.loadStyleURI(styleUri);
-}
-
-// REMOVED — stored the last brightness so we only reload when it actually changes.
-Brightness? _lastAppliedBrightness;
-```
-
-#### 4. Camera follow / scroll detection state
-```dart
-// REMOVED — tracked whether the camera was locked to the puck.
-// When false, the recenter FAB appeared.
-bool _isFollowingPuck = true;
-
-// REMOVED — prevented scroll detection from firing while an animated camera
-// transition was already in progress.
-bool _isTransitioningCamera = false;
-
-// REMOVED — the GestureRecognizer that detected when the user manually panned
-// the map, which would un-lock the camera and show the recenter button.
-void _onUserScroll(MapContentGestureContext context) {
-  if (_isTransitioningCamera) return;
-  if (_isFollowingPuck) {
-    setState(() => _isFollowingPuck = false);
-  }
-}
-```
-
-#### 5. Recenter floating action button
-```dart
-// REMOVED — appeared at the bottom-right when the user panned away from their puck.
-// Tapping it re-locked the camera to follow the user again.
-Widget _buildRecenterFab() {
-  return Positioned(
-    bottom: 24,
-    right: 16,
-    child: FloatingActionButton.small(
-      onPressed: _recenterOnPuck,
-      backgroundColor: Colors.white,
-      child: const Icon(Icons.my_location, color: Colors.blue),
-    ),
-  );
-}
-
-Future<void> _recenterOnPuck() async {
-  setState(() {
-    _isFollowingPuck = true;
-    _isTransitioningCamera = true;
-  });
-  _transitionToFollowPuck();
-  await Future.delayed(const Duration(milliseconds: 600));
-  if (mounted) setState(() => _isTransitioningCamera = false);
-}
-```
-
-#### 6. Debug panel UI
-```dart
-// REMOVED — a collapsible overlay at the bottom of the map showing internal
-// state values. Only shown in debug builds (kDebugMode).
-
-// Toggle button in AppBar:
-if (kDebugMode)
-  IconButton(
-    icon: Icon(_showDebugPanel ? Icons.bug_report : Icons.bug_report_outlined),
-    onPressed: () => setState(() => _showDebugPanel = !_showDebugPanel),
-  ),
-
-// The panel itself:
-Widget _buildDebugPanel() {
-  return Positioned(
-    left: 12,
-    right: 12,
-    bottom: 80,
-    child: Card(
-      color: Colors.black87,
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Phase: $_phase', style: const TextStyle(color: Colors.white, fontSize: 11)),
-            Text('Route pts: ${_fullRouteCoords.length}', ...),
-            Text('HTTP: $_lastHttpStatus', ...),
-            Text('Start: $_startMode', ...),
-            Text('Closest idx: $_lastClosestIndex', ...),
-            if (_lastRouteUpdatedAt != null)
-              Text('Last route: ${_lastRouteUpdatedAt!.toIso8601String()}', ...),
-          ],
-        ),
-      ),
-    ),
-  );
-}
+  # assets: every image file the app loads at runtime must be listed here.
+  # Without registering an asset, rootBundle.load() will throw an error.
+  assets:
+    - assets/pic1a.png   # custom GPS puck icon (default)
+    - assets/pic1b.png   # custom GPS puck icon (alternate)
 ```
 
 ---
 
-### What Was Added
+## 3. The Event Model
 
-Only one thing was added compared to the one-shot version:
-
-#### The `eventName` parameter
-```dart
-// ADDED — the one-shot version had no eventName parameter.
-// The AppBar just showed a generic title like "Navigating".
-// We added eventName so the AppBar and arrival card both show the actual event name.
-
-const LiveNavigationScreen({
-  super.key,
-  required this.destLat,
-  required this.destLng,
-  required this.eventName,  // ← new
-});
-```
-
-And the corresponding usage in EventDetailScreen:
-```dart
-// BEFORE (one-shot version — missing eventName, caused a compile error):
-Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (_) => LiveNavigationScreen(
-      destLat: widget.event.latitude,
-      destLng: widget.event.longitude,
-      // eventName was missing — compile error
-    ),
-  ),
-);
-
-// AFTER (fixed):
-Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (_) => LiveNavigationScreen(
-      destLat: widget.event.latitude,
-      destLng: widget.event.longitude,
-      eventName: widget.event.name,  // ← added
-    ),
-  ),
-);
-```
-
----
-
-### The Supporting Files (unchanged)
-
-Two files support the navigation screen and were not modified:
-
-**`lib/logic/navigation_access_evaluator.dart`**
-Handles all GPS permission logic. Takes the current `serviceEnabled` bool and
-`LocationPermission` enum value, and returns a `NavigationAccessDecision` object
-describing whether navigation is allowed, what error message to show, and which
-action buttons (Retry, App Settings, Location Settings) to display.
-
-Keeping this logic in its own file makes it independently testable — you can
-verify every permission scenario without needing the map or GPS hardware.
-
-**`lib/config/app_config.dart`**
-Reads the Mapbox access token from `--dart-define` at compile time using
-`String.fromEnvironment()`. If no value is passed, the hardcoded default token
-is used. Also exposes `enableDevTools` and `enableVerboseLogs` flags.
-
-```bash
-# How to pass the token at run time (optional — default is already set):
-flutter run --dart-define=MAPBOX_ACCESS_TOKEN=pk.your_token_here
-```
-
----
-
-## 3. Hype System (#25)
-
-### Concept
-
-A "Hype" is like a campus-specific version of a like or upvote.
-Each user can hype an event once — tapping again un-hypes it (a toggle).
-
-**Firestore design:**
-- `hypeCount` (int) — cached total on the event document. Fast to display.
-- `hypedBy` (array of UIDs) — tracks who has already hyped so we prevent duplicates.
-
-We use `FieldValue.arrayUnion` / `FieldValue.arrayRemove` (atomic Firestore operations)
-so two users hyping at the same instant don't accidentally overwrite each other.
-
-The UI uses an **optimistic update** pattern:
-flip the button immediately → write to Firestore → roll back on failure.
-This makes the app feel instant even on slow connections.
-
----
-
-### Step 1 — Update the Event Model (`lib/models/event.dart`)
-
-Add three new fields. Existing documents in Firestore that don't have these fields
-will safely default to `0` / `[]` because of the `??` fallback in `fromFirestore`.
+**What:** A Dart class that represents one campus event.
+**Where:** `lib/models/event.dart`
+**Why:** Firestore stores data as raw key-value maps (like JSON). The Event class
+gives us a clean, typed Dart object to work with instead of raw maps everywhere.
+We convert between the two using `toMap()` (Dart → Firestore) and `fromFirestore()` (Firestore → Dart).
 
 ```dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+// We import Firestore so we can use Timestamp (Firestore's date type)
+// and DocumentSnapshot (one document that Firestore sent back to us).
+
 class Event {
+
+  // --- FIELDS ---
+  // Every event has these properties. "final" means once the Event is created,
+  // these values cannot change — you would create a new Event object instead.
+
   final String? id;
-  final String name;
-  final String description;
-  final double latitude;
-  final double longitude;
-  final DateTime createdAt;
+  // String? — the ? means this CAN be null.
+  // Why nullable? Firestore auto-generates the document ID when you save an event.
+  // A brand-new event that hasn't been saved yet doesn't have an ID yet.
 
-  // --- NEW HYPE FIELDS ---
+  final String name;        // the event title, e.g. "IEEE Game Night"
+  final String description; // longer text describing the event
+  final double latitude;    // GPS coordinate — where on Earth (north/south)
+  final double longitude;   // GPS coordinate — where on Earth (east/west)
+  final DateTime createdAt; // when this event was created/posted
 
-  // int = whole number. How many unique users have hyped this event.
-  // We store this separately so we can display it without reading hypedBy.
+  // --- HYPE FIELDS ---
+  // "Hyping" is like a campus upvote. One hype per user, toggleable.
+
   final int hypeCount;
+  // int = whole number. Counts how many unique users have hyped this event.
+  // Stored directly on the event document so we can show it on cards
+  // without reading every user's data.
 
-  // List<String> = a list of text values. Stores every UID that has hyped.
-  // We check .contains(uid) before allowing another hype — no double-hyping.
-  // const [] = an immutable empty list used as the default value.
   final List<String> hypedBy;
+  // List<String> = a list of text values.
+  // Stores the Firebase Auth UID of every user who has hyped.
+  // We check .contains(uid) before allowing a hype to prevent duplicates.
+  // Firestore stores this as an array field.
 
+  // --- RSVP FIELDS ---
+  final int rsvpCount;
+  // How many users have RSVP'd. Stored here as a quick-access counter.
+  // The actual attendee list lives in a subcollection: events/{id}/rsvps/{userId}
+
+  // --- RATING FIELDS ---
+  final double averageRating;
+  // double because averages have decimals (e.g. 4.2).
+  // Cached here so event cards can show the rating without reading all reviews.
+  // Recomputed every time someone submits or updates a review.
+
+  final int reviewCount;
+  // How many reviews exist. Shown alongside the average: "4.2 ★ (12 reviews)"
+
+  // --- CONSTRUCTOR ---
+  // The constructor is how you create an Event object.
+  // "required" = caller MUST provide this value.
+  // "this.field = defaultValue" = optional, uses the default if not provided.
   Event({
     this.id,
     required this.name,
     required this.description,
     required this.latitude,
     required this.longitude,
-    DateTime? createdAt,
-    this.hypeCount = 0,       // new events start at 0
-    this.hypedBy = const [],  // new events have nobody in the list
+    DateTime? createdAt,        // optional — defaults to right now if not given
+    this.hypeCount    = 0,
+    this.hypedBy      = const [], // const [] = an immutable empty list
+    this.rsvpCount    = 0,
+    this.averageRating = 0.0,
+    this.reviewCount  = 0,
   }) : createdAt = createdAt ?? DateTime.now();
+  // The `: createdAt = ...` part runs after the constructor body.
+  // ?? means "use createdAt if provided, otherwise use DateTime.now()".
 
-  // toMap() — called when SAVING an event to Firestore.
-  // Add the new fields here so they get written to the database.
+  // --- toMap() ---
+  // Converts this Event object into a Map so Firestore can store it.
+  // A Map<String, dynamic> is like a JSON object: keys are Strings,
+  // values can be any type.
+  // Note: we do NOT include 'id' because Firestore uses document ID separately.
   Map<String, dynamic> toMap() {
     return {
       'name': name,
@@ -365,26 +319,48 @@ class Event {
       'latitude': latitude,
       'longitude': longitude,
       'createdAt': Timestamp.fromDate(createdAt),
-      'hypeCount': hypeCount,  // <-- new
-      'hypedBy': hypedBy,      // <-- new
+      // Firestore has its own Timestamp type — we convert from Dart's DateTime.
+      'hypeCount': hypeCount,
+      'hypedBy': hypedBy,
+      'rsvpCount': rsvpCount,
+      'averageRating': averageRating,
+      'reviewCount': reviewCount,
     };
   }
 
-  // fromFirestore() — called when READING an event from Firestore.
-  // The ?? gives a safe default if the field doesn't exist on old documents.
+  // --- fromFirestore() ---
+  // A factory constructor that builds an Event from a Firestore document.
+  // "factory" = a special constructor that can do logic before returning the object.
+  // DocumentSnapshot = one document (row) returned from Firestore.
   factory Event.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    // doc.data() returns the raw field map. We cast it to the type we know it is.
+
     return Event(
       id: doc.id,
+      // doc.id = the Firestore document ID (auto-generated, unique string)
+
       name: data['name'] ?? '',
+      // data['name'] reads the 'name' field. ?? '' means "use empty string if missing"
+      // This protects against old documents that don't have every field yet.
+
       description: data['description'] ?? '',
-      latitude: (data['latitude'] ?? 0).toDouble(),
+      latitude:  (data['latitude']  ?? 0).toDouble(),
       longitude: (data['longitude'] ?? 0).toDouble(),
+      // .toDouble() converts int or double to double — Firestore might store either.
+
       createdAt: data['createdAt'] != null
           ? (data['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
-      hypeCount: (data['hypeCount'] ?? 0) as int,           // <-- new
-      hypedBy: List<String>.from(data['hypedBy'] ?? []),    // <-- new
+      // If the field exists, convert Firestore Timestamp → Dart DateTime.
+      // Otherwise default to now.
+
+      hypeCount:     (data['hypeCount']     ?? 0) as int,
+      hypedBy:       List<String>.from(data['hypedBy'] ?? []),
+      // List<String>.from() converts a dynamic list to a typed List<String>.
+      rsvpCount:     (data['rsvpCount']     ?? 0) as int,
+      averageRating: (data['averageRating'] ?? 0).toDouble(),
+      reviewCount:   (data['reviewCount']   ?? 0) as int,
     );
   }
 }
@@ -392,474 +368,439 @@ class Event {
 
 ---
 
-### Step 2 — Firestore Service Methods (`lib/services/firestore_service.dart`)
+## 4. FirestoreService — The Database Layer
 
-```dart
-// hypeEvent — adds the user's UID to hypedBy and increments hypeCount by 1.
-// Both happen in a single Firestore write, so they're always in sync.
-Future<void> hypeEvent(String eventId, String uid) async {
-  await _eventsCollection.doc(eventId).update({
-    // arrayUnion adds uid ONLY if it's not already in the list.
-    // This is the Firestore-safe way to prevent duplicate entries.
-    'hypedBy': FieldValue.arrayUnion([uid]),
+**What:** A single class that contains every method for reading and writing to Firestore.
+**Where:** `lib/services/firestore_service.dart`
+**Why:** Keeping all database logic in one place means the UI files never need to know
+how Firestore works internally. If we ever change databases, we only edit this one file.
 
-    // increment is atomic on the server — even if two users hype at the
-    // exact same millisecond, neither write overwrites the other.
-    'hypeCount': FieldValue.increment(1),
-  });
-}
+### Key Firestore Concepts
 
-// unhypeEvent — removes the user's UID and decrements hypeCount by 1.
-// Called when the user taps the hype button a second time to toggle it off.
-Future<void> unhypeEvent(String eventId, String uid) async {
-  await _eventsCollection.doc(eventId).update({
-    // arrayRemove removes uid from the list. If uid isn't there, it's a no-op.
-    'hypedBy': FieldValue.arrayRemove([uid]),
-    'hypeCount': FieldValue.increment(-1),
-  });
-}
+```
+Firestore is a NoSQL cloud database organized like this:
+
+Collection            ← like a SQL table
+  └── Document        ← like a SQL row (has a unique ID)
+        ├── field: value
+        ├── field: value
+        └── Subcollection   ← a collection inside a document
+              └── Document
 ```
 
----
-
-### Step 3 — Event Card Hype Button (inside `_EventCardState`)
-
-The card uses local state so the button responds instantly without waiting for Firestore.
+### The Complete FirestoreService
 
 ```dart
-class _EventCardState extends State<_EventCard> {
-  final FirestoreService _firestoreService = FirestoreService();
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/event.dart';
 
-  // --- LOCAL HYPE STATE ---
-  // late = "I'll set this in initState before it's ever read."
-  // We store these locally so we can flip them instantly on tap.
-  // Without local state, the button would feel laggy — it would wait
-  // for Firestore to confirm before updating the icon.
-  late bool _hasHyped;
-  late int _hypeCount;
+class FirestoreService {
 
-  @override
-  void initState() {
-    super.initState();
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+  // A CollectionReference points to the 'events' collection in Firestore.
+  // Think of it as a handle to that "table" — we use it for every events query.
+  final CollectionReference _eventsCollection =
+      FirebaseFirestore.instance.collection('events');
 
-    // widget.event is the Event object passed into this card.
-    // We seed the initial state from the Firestore snapshot.
-    // If the current user's UID is in hypedBy, they've already hyped it.
-    _hasHyped = uid != null && widget.event.hypedBy.contains(uid);
-    _hypeCount = widget.event.hypeCount;
+
+  // ── EVENTS ──────────────────────────────────────────────────────────────────
+
+  // addEvent — saves a brand new event to Firestore.
+  // .add() creates a new document with a Firestore-generated ID.
+  // Returns the new document's ID so we can reference it later.
+  Future<String> addEvent(Event event) async {
+    final docRef = await _eventsCollection.add(event.toMap());
+    return docRef.id;
   }
 
-  // _onHypeTapped is async because it eventually talks to Firestore.
-  // But the UI updates BEFORE the async work starts — that's the key.
-  Future<void> _onHypeTapped() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return; // user must be logged in
+  // getEventsStream — returns a live stream of all events.
+  // .snapshots() fires every time the collection changes — new event added,
+  // existing event updated, event deleted. Your UI rebuilds automatically.
+  // This is Firestore's "real-time" superpower.
+  Stream<List<Event>> getEventsStream() {
+    return _eventsCollection
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => Event.fromFirestore(doc))
+            .toList());
+    // .map() transforms the raw snapshot into a List<Event> using our factory.
+  }
 
-    final wasHyped = _hasHyped; // snapshot of the state before we change it
+  // deleteEvent — removes an event by its document ID.
+  Future<void> deleteEvent(String eventId) async {
+    await _eventsCollection.doc(eventId).delete();
+  }
 
-    // OPTIMISTIC UPDATE — flip the UI immediately, don't wait for Firebase.
-    setState(() {
-      _hasHyped = !wasHyped;
-      _hypeCount += wasHyped ? -1 : 1; // wasHyped=true means we're un-hyping
+
+  // ── HYPE ────────────────────────────────────────────────────────────────────
+
+  // hypeEvent — adds the user's UID to the hypedBy array and increments hypeCount.
+  // Both happen in one write — they are always in sync.
+  Future<void> hypeEvent(String eventId, String uid) async {
+    await _eventsCollection.doc(eventId).update({
+      'hypedBy':   FieldValue.arrayUnion([uid]),
+      // arrayUnion adds uid ONLY if it's not already in the array.
+      // Safe to call multiple times — never creates duplicates.
+      'hypeCount': FieldValue.increment(1),
+      // increment(1) is atomic on the server. Even if two users hype at the
+      // exact same millisecond, both increments are counted correctly.
     });
-
-    try {
-      // Now do the actual Firestore write in the background.
-      if (wasHyped) {
-        await _firestoreService.unhypeEvent(widget.event.id!, uid);
-      } else {
-        await _firestoreService.hypeEvent(widget.event.id!, uid);
-      }
-    } catch (_) {
-      // If Firestore fails (no internet, permissions, etc.), roll back
-      // the UI to the original state. The user sees the correction.
-      if (mounted) {
-        setState(() {
-          _hasHyped = wasHyped;
-          _hypeCount += wasHyped ? 1 : -1;
-        });
-      }
-    }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      // Animated hype button — scale bounce + icon crossfade + count slide-up.
-      // ValueKey(_hasHyped) forces the animation to restart every time
-      // the hype state changes — that's what triggers the bounce.
-      child: TweenAnimationBuilder<double>(
-        key: ValueKey(_hasHyped),
-        tween: Tween(begin: 1.3, end: 1.0), // starts at 130% size, shrinks to 100%
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.elasticOut, // overshoot then settle — feels springy
-        builder: (context, scale, child) =>
-            Transform.scale(scale: scale, child: child),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // AnimatedSwitcher crossfades between the two icons.
-            // ValueKey(_hasHyped) tells it "this is a different widget now, animate."
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: Icon(
-                _hasHyped
-                    ? Icons.local_fire_department          // filled = hyped
-                    : Icons.local_fire_department_outlined, // outline = not hyped
-                key: ValueKey(_hasHyped),
-                color: _hasHyped ? Colors.orange : Colors.grey,
-                size: 18,
-              ),
-            ),
-            const SizedBox(width: 3),
-            // AnimatedSwitcher slides the count number up when it changes.
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              transitionBuilder: (child, animation) => SlideTransition(
-                // Slide from below (Offset(0, 0.5)) to its natural position (Offset.zero).
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.5),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: FadeTransition(opacity: animation, child: child),
-              ),
-              child: Text(
-                '$_hypeCount',
-                key: ValueKey(_hypeCount), // change triggers the slide animation
-                style: TextStyle(
-                  fontSize: 12,
-                  color: _hasHyped ? Colors.orange : Colors.grey,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-```
-
----
-
-### Step 4 — Sorting Events by Hype (in `_EventsScreenState`)
-
-We sort client-side instead of using Firestore `orderBy('hypeCount')` because
-`orderBy` on a field **excludes any document that doesn't have that field**.
-Old events without `hypeCount` would silently disappear from the list.
-
-```dart
-_eventsSubscription = _firestoreService.getEventsStream().listen((events) {
-  // Sort descending — most hyped event at index 0.
-  // compareTo returns negative/zero/positive, so reversing gives descending order.
-  events.sort((a, b) => b.hypeCount.compareTo(a.hypeCount));
-
-  setState(() {
-    _allEvents = events;
-    _loading = false;
-  });
-});
-```
-
----
-
-### Step 5 — "Popular" Section Header Logic
-
-Split the sorted list into sections based on hype count:
-
-```dart
-// Events with at least this many hypes get their own "Popular" section.
-const int _popularThreshold = 1;
-
-final popular = _allEvents.where((e) => e.hypeCount >= _popularThreshold).toList();
-final regular = _allEvents.where((e) => e.hypeCount < _popularThreshold).toList();
-
-// Build a flat list of headers + cards for a single scrollable ListView.
-final List<Widget> items = [];
-
-if (popular.isNotEmpty) {
-  items.add(const _SectionHeader(icon: Icons.local_fire_department, label: 'Popular'));
-  for (final e in popular) {
-    items.add(_EventCard(event: e));
-  }
-}
-
-if (regular.isNotEmpty) {
-  items.add(const _SectionHeader(icon: Icons.event, label: 'All Events'));
-  for (final e in regular) {
-    items.add(_EventCard(event: e));
-  }
-}
-```
-
----
-
-## 4. RSVPs (#10)
-
-### Concept
-
-RSVPs answer the question "who is coming?" Each user gets one RSVP per event.
-We use a **Firestore subcollection** instead of an array field because:
-
-- Each RSVP document can store extra data (display name, email, timestamp)
-- Subcollections scale to thousands of attendees without hitting Firestore's 1 MB document limit
-- We can query and display the attendee list independently
-
-**Firestore structure:**
-```
-events/
-  {eventId}/
-    rsvps/
-      {userId}    ← one document per attendee
-        rsvpdAt: Timestamp
-        displayName: "Matt Berry"
-        email: "matt@utrgv.edu"
-```
-
-We use a **Firestore transaction** to update both the RSVP subcollection document
-and the `rsvpCount` counter on the event document at the same time.
-Transactions either succeed completely or fail completely — the count never drifts.
-
----
-
-### Step 1 — Add `rsvpCount` to the Event Model
-
-```dart
-class Event {
-  // ... existing fields ...
-
-  // How many users have RSVP'd. Stored on the event document so we can
-  // display it on cards without querying the rsvps subcollection every time.
-  final int rsvpCount;
-
-  Event({
-    // ... existing params ...
-    this.rsvpCount = 0,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      // ... existing fields ...
-      'rsvpCount': rsvpCount,
-    };
-  }
-
-  factory Event.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    return Event(
-      // ... existing fields ...
-      rsvpCount: (data['rsvpCount'] ?? 0) as int,
-    );
-  }
-}
-```
-
----
-
-### Step 2 — Firestore Service Methods
-
-```dart
-// rsvpEvent — creates an RSVP document and increments rsvpCount atomically.
-// displayName and email are optional — they're stored so the attendee list
-// can show real names without looking up users in a separate collection.
-Future<void> rsvpEvent(
-  String eventId,
-  String uid, {
-  String? displayName,
-  String? email,
-}) async {
-  final eventRef = _eventsCollection.doc(eventId);
-
-  // A subcollection reference — Firestore creates the 'rsvps' subcollection
-  // automatically on the first write. No setup needed.
-  final rsvpRef = eventRef.collection('rsvps').doc(uid);
-
-  // runTransaction groups the reads and writes so they succeed or fail together.
-  // This prevents the count and the subcollection from getting out of sync.
-  await FirebaseFirestore.instance.runTransaction((transaction) async {
-    final rsvpDoc = await transaction.get(rsvpRef); // must read before writing
-    if (rsvpDoc.exists) return; // already RSVP'd — nothing to do
-
-    transaction.set(rsvpRef, {
-      'rsvpdAt': FieldValue.serverTimestamp(), // server time, not device time
-      'displayName': displayName,
-      'email': email,
+  // unhypeEvent — removes the user's UID and decrements hypeCount.
+  Future<void> unhypeEvent(String eventId, String uid) async {
+    await _eventsCollection.doc(eventId).update({
+      'hypedBy':   FieldValue.arrayRemove([uid]),
+      // arrayRemove removes uid from the array. No-op if uid isn't there.
+      'hypeCount': FieldValue.increment(-1),
     });
-    transaction.update(eventRef, {'rsvpCount': FieldValue.increment(1)});
-  });
-}
+  }
 
-// unrsvpEvent — deletes the RSVP document and decrements rsvpCount.
-Future<void> unrsvpEvent(String eventId, String uid) async {
-  final eventRef = _eventsCollection.doc(eventId);
-  final rsvpRef = eventRef.collection('rsvps').doc(uid);
 
-  await FirebaseFirestore.instance.runTransaction((transaction) async {
-    final rsvpDoc = await transaction.get(rsvpRef);
-    if (!rsvpDoc.exists) return; // not RSVP'd — nothing to do
+  // ── RSVPs ────────────────────────────────────────────────────────────────────
+  //
+  // RSVPs are stored in a subcollection: events/{eventId}/rsvps/{userId}
+  // One document per user. We use a transaction so the count and the
+  // subcollection document always update together — never out of sync.
 
-    transaction.delete(rsvpRef);
-    transaction.update(eventRef, {'rsvpCount': FieldValue.increment(-1)});
-  });
-}
+  // rsvpEvent — creates the user's RSVP document and increments rsvpCount.
+  Future<void> rsvpEvent(
+    String eventId,
+    String uid, {
+    String? displayName, // optional — stored so attendee list can show real names
+    String? email,
+  }) async {
+    final eventRef = _eventsCollection.doc(eventId);
+    final rsvpRef  = eventRef.collection('rsvps').doc(uid);
+    // Using uid as the document ID means one RSVP per user — can't RSVP twice.
 
-// checkUserRsvp — one-time read. Returns true if the user has RSVP'd.
-// Used to seed the button state when the detail screen opens.
-Future<bool> checkUserRsvp(String eventId, String uid) async {
-  final doc = await _eventsCollection
-      .doc(eventId)
-      .collection('rsvps')
-      .doc(uid)
-      .get();
-  return doc.exists;
-}
+    // runTransaction groups reads and writes so they succeed or fail together.
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final rsvpDoc = await transaction.get(rsvpRef); // read first (required by Firestore)
+      if (rsvpDoc.exists) return;                     // already RSVP'd — do nothing
 
-// getRsvpsStream — live stream of all attendee documents for an event.
-// The UI rebuilds automatically whenever someone RSVPs or un-RSVPs.
-Stream<QuerySnapshot> getRsvpsStream(String eventId) {
-  return _eventsCollection
-      .doc(eventId)
-      .collection('rsvps')
-      .orderBy('rsvpdAt') // show earliest RSVPs first
-      .snapshots();
-}
-```
-
----
-
-### Step 3 — RSVP Button + Attendee List (in `EventDetailScreen`)
-
-Add this state to `_EventDetailScreenState`:
-
-```dart
-bool _hasRsvpd = false;   // starts false; loaded async in initState
-late int _rsvpCount;      // seeded from widget.event.rsvpCount
-
-@override
-void initState() {
-  super.initState();
-  _rsvpCount = widget.event.rsvpCount;
-  _loadRsvpStatus(); // kicks off the async check
-}
-
-// _loadRsvpStatus reads the subcollection to check if this user has RSVP'd.
-// We can't know this from the event snapshot alone because RSVP status
-// is stored per-user in a subcollection, not on the event document.
-Future<void> _loadRsvpStatus() async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null || widget.event.id == null) return;
-
-  final hasRsvpd = await _firestoreService.checkUserRsvp(widget.event.id!, uid);
-  if (mounted) setState(() => _hasRsvpd = hasRsvpd);
-  // mounted check prevents calling setState on a widget that was already
-  // removed from the tree while we were waiting for Firestore.
-}
-
-Future<void> _onRsvpTapped() async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null) return;
-
-  final wasRsvpd = _hasRsvpd;
-  setState(() {           // optimistic update
-    _hasRsvpd = !wasRsvpd;
-    _rsvpCount += wasRsvpd ? -1 : 1;
-  });
-
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-    if (wasRsvpd) {
-      await _firestoreService.unrsvpEvent(widget.event.id!, uid);
-    } else {
-      await _firestoreService.rsvpEvent(
-        widget.event.id!,
-        uid,
-        displayName: user?.displayName,
-        email: user?.email,
-      );
-    }
-  } catch (_) {
-    if (mounted) {
-      setState(() {         // roll back on failure
-        _hasRsvpd = wasRsvpd;
-        _rsvpCount += wasRsvpd ? 1 : -1;
+      transaction.set(rsvpRef, {
+        'rsvpdAt':     FieldValue.serverTimestamp(), // use server time, not device time
+        'displayName': displayName,
+        'email':       email,
       });
+      transaction.update(eventRef, {'rsvpCount': FieldValue.increment(1)});
+    });
+  }
+
+  // unrsvpEvent — deletes the RSVP document and decrements rsvpCount.
+  Future<void> unrsvpEvent(String eventId, String uid) async {
+    final eventRef = _eventsCollection.doc(eventId);
+    final rsvpRef  = eventRef.collection('rsvps').doc(uid);
+
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final rsvpDoc = await transaction.get(rsvpRef);
+      if (!rsvpDoc.exists) return; // not RSVP'd — do nothing
+
+      transaction.delete(rsvpRef);
+      transaction.update(eventRef, {'rsvpCount': FieldValue.increment(-1)});
+    });
+  }
+
+  // checkUserRsvp — one-time read. Returns true if the user has RSVP'd.
+  Future<bool> checkUserRsvp(String eventId, String uid) async {
+    final doc = await _eventsCollection
+        .doc(eventId).collection('rsvps').doc(uid).get();
+    return doc.exists;
+  }
+
+  // getRsvpsStream — live stream of all attendee documents, oldest RSVP first.
+  Stream<QuerySnapshot> getRsvpsStream(String eventId) {
+    return _eventsCollection
+        .doc(eventId).collection('rsvps')
+        .orderBy('rsvpdAt')
+        .snapshots();
+  }
+
+
+  // ── FAVORITES ────────────────────────────────────────────────────────────────
+  //
+  // Favorites are stored per-user: users/{userId}/favorites/{eventId}
+  // Using eventId as the document ID means saving the same event twice
+  // is a no-op — set() silently overwrites the existing document.
+
+  // Shorthand reference to a user's favorites subcollection.
+  // Returns the CollectionReference without repeating the full path everywhere.
+  CollectionReference _favoritesRef(String uid) =>
+      FirebaseFirestore.instance.collection('users').doc(uid).collection('favorites');
+
+  // saveEvent — stores the full event snapshot in favorites.
+  // The spread operator (...) copies all fields from event.toMap() into this document.
+  Future<void> saveEvent(String uid, Event event) async {
+    await _favoritesRef(uid).doc(event.id).set({
+      ...event.toMap(),
+      'savedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> unsaveEvent(String uid, String eventId) async {
+    await _favoritesRef(uid).doc(eventId).delete();
+  }
+
+  Future<bool> checkEventSaved(String uid, String eventId) async {
+    final doc = await _favoritesRef(uid).doc(eventId).get();
+    return doc.exists;
+  }
+
+  // getSavedEventIdsStream — live stream of the user's saved event IDs.
+  // Returns Set<String> so checking if an event is saved is O(1) — instant.
+  // The EventsScreen listens to this to know which card bookmark icons to fill in.
+  Stream<Set<String>> getSavedEventIdsStream(String uid) {
+    return _favoritesRef(uid).snapshots().map(
+      (snapshot) => snapshot.docs.map((doc) => doc.id).toSet(),
+      // Each document's ID is the eventId — collect them into a Set.
+    );
+  }
+
+
+  // ── REVIEWS ──────────────────────────────────────────────────────────────────
+  //
+  // Reviews: events/{eventId}/reviews/{userId}
+  // One review per user. Re-submitting overwrites the previous review.
+  //
+  // We store ratingSum on the event document (not exposed in the Event model).
+  // This lets us recompute the average correctly when a user changes their rating:
+  //   newAverage = (oldSum - oldRating + newRating) / reviewCount
+  // Without ratingSum we couldn't do this without reading all reviews.
+
+  // submitReview — writes the review and updates averageRating on the event atomically.
+  Future<void> submitReview(
+    String eventId,
+    String uid,
+    int rating, {
+    String comment = '',
+  }) async {
+    final eventRef  = _eventsCollection.doc(eventId);
+    final reviewRef = eventRef.collection('reviews').doc(uid);
+
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final reviewSnap = await transaction.get(reviewRef);
+      final eventSnap  = await transaction.get(eventRef);
+
+      final eventData    = eventSnap.data() as Map<String, dynamic>? ?? {};
+      final currentSum   = (eventData['ratingSum']   ?? 0) as num;
+      final currentCount = (eventData['reviewCount'] ?? 0) as num;
+
+      final int newSum;
+      final int newCount;
+
+      if (reviewSnap.exists) {
+        // User is updating an existing review — adjust sum, keep count the same.
+        final oldRating = (reviewSnap.data() as Map<String, dynamic>)['rating'] as int;
+        newSum   = currentSum.toInt() - oldRating + rating;
+        newCount = currentCount.toInt();
+      } else {
+        // First review from this user.
+        newSum   = currentSum.toInt() + rating;
+        newCount = currentCount.toInt() + 1;
+      }
+
+      final double newAverage = newCount > 0 ? newSum / newCount : 0.0;
+
+      transaction.set(reviewRef, {
+        'rating':    rating,
+        'comment':   comment.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      transaction.update(eventRef, {
+        'ratingSum':     newSum,
+        'reviewCount':   newCount,
+        'averageRating': newAverage,
+      });
+    });
+  }
+
+  // getUserReview — returns the user's existing review data, or null if none.
+  Future<Map<String, dynamic>?> getUserReview(String eventId, String uid) async {
+    final doc = await _eventsCollection
+        .doc(eventId).collection('reviews').doc(uid).get();
+    return doc.exists ? doc.data() : null;
+  }
+
+  // getReviewsStream — live stream of all reviews for an event, newest first.
+  Stream<QuerySnapshot> getReviewsStream(String eventId) {
+    return _eventsCollection
+        .doc(eventId).collection('reviews')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+}
+```
+
+---
+
+## 5. App Entry Point — main.dart
+
+**What:** The file that starts the entire app. Sets up Firebase, the Mapbox token,
+and decides whether to show the login screen or the main app based on auth state.
+Also contains `MapScreen` — the interactive campus map.
+**Where:** `lib/main.dart`
+**When:** Runs first, before anything else.
+
+```dart
+void main() async {
+  // WidgetsFlutterBinding.ensureInitialized() must be called first in any app
+  // that does async work before runApp(). It connects Flutter's widget system
+  // to the underlying platform (iOS/Android).
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase. Must happen before any Firebase calls.
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Set the Mapbox token. Must happen before any MapWidget is created.
+  MapboxOptions.setAccessToken("pk.your_token_here");
+
+  runApp(MyApp()); // hand control to Flutter
+}
+```
+
+### Auth Gate — Who Sees What
+
+```dart
+// StreamBuilder listens to Firebase auth state changes.
+// It rebuilds automatically when the user logs in or out.
+home: StreamBuilder<User?>(
+  stream: FirebaseAuth.instance.authStateChanges(),
+  // User? = either a logged-in User object, or null (not logged in)
+
+  builder: (context, snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return Scaffold(body: Center(child: CircularProgressIndicator()));
+      // Still loading auth state — show a spinner
+    }
+
+    if (snapshot.hasData) {
+      return HomeScreen(); // logged in → go to the main app
+    }
+
+    return LoginScreen(); // not logged in → go to login
+  },
+),
+```
+
+### MapScreen — The Campus Map
+
+The map screen shows a Mapbox map centered on campus. Event locations appear as
+blue circles. Tapping a circle opens that event's detail screen. Tapping empty
+map space lets the user create a new event at that location.
+
+```dart
+class _MapScreenState extends State<MapScreen> {
+  MapboxMap? _mapboxMap;
+  CircleAnnotationManager? _circleManager;
+  // CircleAnnotationManager handles drawing and tapping circle markers on the map.
+
+  final FirestoreService _firestoreService = FirestoreService();
+  StreamSubscription? _eventsSubscription;
+  final Map<String, Event> _circleToEvent = {};
+  // Map<String, Event> = dictionary from circle annotation ID → Event object.
+  // When a circle is tapped, we look up which Event it represents using this map.
+
+  // Campus bounds — the map won't scroll outside this box.
+  static const double utrgvCenterLat = 26.3050;
+  static const double utrgvCenterLng = -98.1740;
+
+  void _onMapCreated(MapboxMap mapboxMap) async {
+    _mapboxMap = mapboxMap;
+
+    // Lock the camera to campus — prevents users from scrolling to Tokyo.
+    await mapboxMap.setBounds(CameraBoundsOptions(...));
+
+    // Create the manager that will draw circle markers.
+    _circleManager = await mapboxMap.annotations.createCircleAnnotationManager();
+
+    // When a circle is tapped, find the matching Event and open its detail screen.
+    _circleManager?.tapEvents(
+      onTap: (circle) {
+        final event = _circleToEvent[circle.id];
+        if (event != null) {
+          Navigator.push(context,
+            MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)));
+        }
+      },
+    );
+
+    // Listen to Firestore — redraw all markers whenever the events collection changes.
+    _eventsSubscription = _firestoreService.getEventsStream().listen((events) {
+      _redrawMarkers(events);
+    });
+  }
+
+  Future<void> _redrawMarkers(List<Event> events) async {
+    await _circleManager!.deleteAll(); // clear old markers first
+    _circleToEvent.clear();
+
+    for (final event in events) {
+      final circle = await _circleManager!.create(
+        CircleAnnotationOptions(
+          geometry: Point(coordinates: Position(event.longitude, event.latitude)),
+          circleColor: Colors.blue.toARGB32(), // toARGB32() converts Flutter Color to int
+          circleRadius: 12.0,
+        ),
+      );
+      _circleToEvent[circle.id] = event; // register for tap lookup
     }
   }
 }
 ```
 
-Attendee list widget (add anywhere in the build column):
+---
+
+## 6. Home Screen — Bottom Navigation
+
+**What:** The shell screen that holds the bottom navigation bar and switches between
+the three main tabs: Events list, Map, and Calendar.
+**Where:** `lib/screens/home_screen.dart`
+**Why:** Putting the nav bar here means we swap only the body widget when tabs change —
+we don't rebuild the whole screen tree.
 
 ```dart
-// _AttendeeList uses ExpansionTile so it starts collapsed.
-// StreamBuilder keeps the list live — new RSVPs appear without refreshing.
-class _AttendeeList extends StatelessWidget {
-  final String eventId;
-  final int rsvpCount;
-  final FirestoreService firestoreService;
+import 'package:flutter/material.dart';
+import 'event_screen.dart';
+import 'calendar_screen.dart';
+import '../main.dart'; // imports MapScreen
 
-  const _AttendeeList({
-    required this.eventId,
-    required this.rsvpCount,
-    required this.firestoreService,
-  });
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _currentIndex = 0; // which tab is active (0 = Events, 1 = Map, 2 = Calendar)
+
+  // The three screens. They are created once and reused — not rebuilt on every tab tap.
+  final List<Widget> _screens = [
+    const EventsScreen(),
+    const MapScreen(),
+    const CalendarScreen(),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ExpansionTile(
-        leading: const Icon(Icons.people, color: Colors.green),
-        title: Text(
-          rsvpCount == 0
-              ? 'No attendees yet'
-              : '$rsvpCount ${rsvpCount == 1 ? 'person' : 'people'} going',
-        ),
-        // Hide the expand arrow when there's nothing to expand.
-        trailing: rsvpCount == 0 ? const SizedBox.shrink() : null,
-        children: [
-          StreamBuilder<QuerySnapshot>(
-            stream: firestoreService.getRsvpsStream(eventId),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const CircularProgressIndicator(color: Colors.green);
-              }
+    return Scaffold(
+      // IndexedStack keeps all three screens alive in the background.
+      // Without this, switching tabs would lose scroll position and reload data.
+      body: _screens[_currentIndex],
 
-              final rsvps = snapshot.data?.docs ?? [];
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        selectedItemColor:   Colors.orange,
+        unselectedItemColor: Colors.grey,
+        onTap: (index) => setState(() => _currentIndex = index),
+        // setState() with the new index triggers a rebuild, which swaps the body.
 
-              // shrinkWrap + NeverScrollableScrollPhysics lets this ListView
-              // live inside a parent ScrollView without scroll conflicts.
-              return ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: rsvps.length,
-                itemBuilder: (context, index) {
-                  final data = rsvps[index].data() as Map<String, dynamic>;
-                  // Show displayName → email → 'Anonymous' in that priority order.
-                  final name = (data['displayName'] as String?)?.isNotEmpty == true
-                      ? data['displayName'] as String
-                      : (data['email'] as String?) ?? 'Anonymous';
-
-                  return ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 14,
-                      backgroundColor: Colors.green.shade100,
-                      // First letter of the name as a simple avatar.
-                      child: Text(name[0].toUpperCase(),
-                          style: const TextStyle(fontSize: 12, color: Colors.green)),
-                    ),
-                    title: Text(name, style: const TextStyle(fontSize: 14)),
-                  );
-                },
-              );
-            },
-          ),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.event),          label: 'Events'),
+          BottomNavigationBarItem(icon: Icon(Icons.map),             label: 'Map'),
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_month),  label: 'Calendar'),
         ],
       ),
     );
@@ -869,189 +810,48 @@ class _AttendeeList extends StatelessWidget {
 
 ---
 
-## 5. Share Events (#11)
+## 7. Events Screen — The List View
 
-### Concept
+**What:** A scrollable list of all campus events, organized into three sections:
+My Favorites, Popular (hypeCount ≥ 1), and All Events.
+**Where:** `lib/screens/event_screen.dart`
+**Why StatefulWidget:** The screen listens to two live Firestore streams simultaneously
+(all events + the user's saved IDs). It must store and update that data as it arrives.
 
-Tapping Share opens the native OS share sheet — no custom UI needed.
-The `share_plus` package does all the heavy lifting.
-We just build a plain-text string with the event details and hand it off.
-
----
-
-### Step 1 — Import
+### The State Class
 
 ```dart
-import 'package:share_plus/share_plus.dart';
-```
-
----
-
-### Step 2 — Share Handler (in `_EventDetailScreenState`)
-
-```dart
-void _onShareTapped() {
-  // DateFormat comes from the intl package — formats DateTime into readable text.
-  // 'MMM d, yyyy – h:mm a' produces something like "Apr 14, 2026 – 7:30 PM"
-  final date = DateFormat('MMM d, yyyy – h:mm a').format(widget.event.createdAt);
-
-  // Multi-line string using triple quotes. $ inserts variables into the text.
-  // .trim() removes any leading/trailing whitespace from the whole block.
-  final text = '''
-${widget.event.name}
-
-${widget.event.description.isNotEmpty ? widget.event.description : 'No description.'}
-
-📅 $date
-📍 ${widget.event.latitude.toStringAsFixed(5)}, ${widget.event.longitude.toStringAsFixed(5)}
-
-Shared via Campus Vibes'''.trim();
-
-  // Share.share() hands the text to the OS.
-  // On iOS this opens the native share sheet (AirDrop, Messages, Mail, etc.)
-  // On Android it opens the intent chooser.
-  // subject is used by Mail apps as the email subject line.
-  Share.share(text, subject: widget.event.name);
-}
-```
-
----
-
-### Step 3 — Share Button in AppBar
-
-```dart
-AppBar(
-  title: const Text('Event Details'),
-  backgroundColor: Colors.orange,
-  foregroundColor: Colors.white,
-  actions: [
-    IconButton(
-      icon: const Icon(Icons.share),
-      tooltip: 'Share event',
-      onPressed: _onShareTapped,
-    ),
-  ],
-)
-```
-
----
-
-## 6. Save / Favorites (#7)
-
-### Concept
-
-Users can bookmark events to a personal favorites list.
-We store favorites in a **per-user subcollection** so each user's list is completely independent.
-
-**Firestore structure:**
-```
-users/
-  {userId}/
-    favorites/
-      {eventId}   ← document ID is the eventId
-        name: "..."
-        description: "..."
-        ... (full event snapshot)
-        savedAt: Timestamp
-```
-
-Storing a full event snapshot (instead of just the ID) lets the favorites tab
-display event info without re-querying the events collection.
-
-Using `eventId` as the document ID means saving the same event twice is a no-op —
-`set()` silently overwrites instead of creating a duplicate.
-
-We use a **live stream of saved event IDs** so when you bookmark something on the
-detail screen, the card on the events list updates its bookmark icon instantly.
-
----
-
-### Step 1 — Firestore Service Methods
-
-```dart
-// Shorthand reference to a user's favorites subcollection.
-// Calling _favoritesRef(uid) gives us the CollectionReference without repeating the path.
-CollectionReference _favoritesRef(String uid) =>
-    FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('favorites');
-
-// saveEvent — stores the full event data snapshot under favorites/{eventId}.
-// The spread operator (...) copies all fields from event.toMap() into this document.
-// savedAt records when the user bookmarked it (separate from the event's createdAt).
-Future<void> saveEvent(String uid, Event event) async {
-  await _favoritesRef(uid).doc(event.id).set({
-    ...event.toMap(),
-    'savedAt': FieldValue.serverTimestamp(),
-  });
-}
-
-// unsaveEvent — removes the favorites document for this event.
-Future<void> unsaveEvent(String uid, String eventId) async {
-  await _favoritesRef(uid).doc(eventId).delete();
-}
-
-// checkEventSaved — one-time read. Returns true if the event is saved.
-// Used to seed the bookmark icon state when the detail screen opens.
-Future<bool> checkEventSaved(String uid, String eventId) async {
-  final doc = await _favoritesRef(uid).doc(eventId).get();
-  return doc.exists;
-}
-
-// getSavedEventIdsStream — live stream of which event IDs the user has saved.
-// Returns a Set<String> so checking if an event is saved is O(1) — .contains()
-// on a Set is instant regardless of how many events are saved.
-Stream<Set<String>> getSavedEventIdsStream(String uid) {
-  return _favoritesRef(uid).snapshots().map(
-    // Each document's ID is the eventId — collect them into a Set.
-    (snapshot) => snapshot.docs.map((doc) => doc.id).toSet(),
-  );
-}
-```
-
----
-
-### Step 2 — Events Screen (converting to `StatefulWidget`)
-
-The events screen needs to become a `StatefulWidget` to hold the two streams.
-
-```dart
-class EventsScreen extends StatefulWidget {
-  const EventsScreen({super.key});
-
-  @override
-  State<EventsScreen> createState() => _EventsScreenState();
-}
-
 class _EventsScreenState extends State<EventsScreen> {
   final FirestoreService _firestoreService = FirestoreService();
 
-  List<Event> _allEvents = [];
+  List<Event> _allEvents   = [];    // all events from Firestore, sorted by hype
+  Set<String> _savedEventIds = {};  // event IDs the current user has bookmarked
+  bool _loading = true;             // true until the first batch of events arrives
 
-  // Set gives O(1) lookup — checking if an event is saved is just .contains()
-  Set<String> _savedEventIds = {};
-  bool _loading = true;
-
-  // We keep subscriptions so we can cancel them in dispose().
-  // Forgetting to cancel causes memory leaks and "setState after dispose" crashes.
+  // StreamSubscription = the "ticket" to a live stream.
+  // Keep both so we can cancel them in dispose() and prevent memory leaks.
   StreamSubscription<List<Event>>? _eventsSubscription;
   StreamSubscription<Set<String>>? _savedSubscription;
 
   @override
   void initState() {
     super.initState();
+    // initState() runs ONCE when this widget first appears on screen.
 
-    // Subscribe to all events — fires every time any event changes in Firestore.
+    // Stream 1: all events
     _eventsSubscription = _firestoreService.getEventsStream().listen((events) {
+      // Sort by hype count client-side — highest hype first.
+      // We sort here instead of using Firestore orderBy('hypeCount') because
+      // orderBy EXCLUDES documents that don't have the field at all. Old events
+      // without hypeCount would silently disappear. Client sort is safer.
       events.sort((a, b) => b.hypeCount.compareTo(a.hypeCount));
       setState(() {
         _allEvents = events;
-        _loading = false;
+        _loading   = false;
       });
     });
 
-    // Subscribe to saved IDs — fires when the user saves or unsaves anything.
+    // Stream 2: the user's saved event IDs
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
       _savedSubscription =
@@ -1063,12 +863,16 @@ class _EventsScreenState extends State<EventsScreen> {
 
   @override
   void dispose() {
-    // Always cancel stream subscriptions when the widget is removed.
+    // Always cancel subscriptions when the widget is destroyed.
+    // If you skip this, the streams keep running and call setState on a
+    // widget that no longer exists — which crashes the app.
     _eventsSubscription?.cancel();
     _savedSubscription?.cancel();
     super.dispose();
   }
 
+  // _toggleSave is called when the user taps a bookmark icon on any card.
+  // No setState needed — the stream fires and rebuilds automatically.
   Future<void> _toggleSave(Event event) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || event.id == null) return;
@@ -1078,26 +882,29 @@ class _EventsScreenState extends State<EventsScreen> {
     } else {
       await _firestoreService.saveEvent(uid, event);
     }
-    // No setState needed — the stream fires and rebuilds automatically.
   }
+```
 
+### Building the Three Sections
+
+```dart
   @override
   Widget build(BuildContext context) {
-    // Split events into three sections.
+    // Split the sorted list into three groups.
     final savedEvents = _allEvents.where((e) => _savedEventIds.contains(e.id)).toList();
-    final popular    = _allEvents.where((e) => e.hypeCount >= 1).toList();
-    final regular    = _allEvents.where((e) => e.hypeCount < 1).toList();
+    final popular     = _allEvents.where((e) => e.hypeCount >= 1).toList();
+    final regular     = _allEvents.where((e) => e.hypeCount < 1).toList();
+    // .where() filters a list — like SQL WHERE. Returns a new iterable.
+    // .toList() converts that iterable into a concrete List.
 
+    // Build one flat list of widgets: section headers interleaved with cards.
+    // A single ListView renders them all in one scrollable column.
     final List<Widget> items = [];
 
     if (savedEvents.isNotEmpty) {
       items.add(const _SectionHeader(icon: Icons.bookmark, label: 'My Favorites'));
       for (final e in savedEvents) {
-        items.add(_EventCard(
-          event: e,
-          isSaved: true,
-          onSaveToggled: () => _toggleSave(e),
-        ));
+        items.add(_EventCard(event: e, isSaved: true, onSaveToggled: () => _toggleSave(e)));
       }
     }
 
@@ -1130,811 +937,809 @@ class _EventsScreenState extends State<EventsScreen> {
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: Colors.orange,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: items,
-      ),
+      body: ListView(padding: const EdgeInsets.all(16), children: items),
     );
   }
 }
 ```
 
----
+### The Event Card — Hype Button and Bookmark
 
-### Step 3 — Bookmark Button on the Detail Screen
-
-Add to `_EventDetailScreenState`:
-
-```dart
-bool _hasSaved = false; // loaded async in initState
-
-@override
-void initState() {
-  super.initState();
-  // ... other init ...
-  _loadSavedStatus();
-}
-
-Future<void> _loadSavedStatus() async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null || widget.event.id == null) return;
-
-  final hasSaved = await _firestoreService.checkEventSaved(widget.event.id!, uid);
-  if (mounted) setState(() => _hasSaved = hasSaved);
-}
-
-Future<void> _onSaveTapped() async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null || widget.event.id == null) return;
-
-  final wasSaved = _hasSaved;
-  setState(() => _hasSaved = !wasSaved); // optimistic update
-
-  try {
-    if (wasSaved) {
-      await _firestoreService.unsaveEvent(uid, widget.event.id!);
-    } else {
-      await _firestoreService.saveEvent(uid, widget.event);
-    }
-  } catch (_) {
-    if (mounted) setState(() => _hasSaved = wasSaved); // roll back
-  }
-}
-```
-
-Add the bookmark button to AppBar actions:
+Each card is its own `StatefulWidget` because it manages local hype state
+(the count and filled/unfilled fire icon) independently of the parent screen.
 
 ```dart
-actions: [
-  IconButton(
-    icon: Icon(_hasSaved ? Icons.bookmark : Icons.bookmark_border),
-    tooltip: _hasSaved ? 'Remove from favorites' : 'Save to favorites',
-    onPressed: _onSaveTapped,
-  ),
-  IconButton(
-    icon: const Icon(Icons.share),
-    onPressed: _onShareTapped,
-  ),
-],
-```
-
----
-
-## 7. Calendar View (#5)
-
-### Concept
-
-The calendar gives users a date-based view of events instead of the scrolling list.
-The `table_calendar` package renders the monthly grid — we just feed it the events.
-
-**How the event grouping works:**
-Each event has a `createdAt` timestamp. We normalize it to midnight
-(`DateTime(year, month, day)`) and use that as the map key. That way, two events
-at different times on the same day land in the same bucket.
-
-**Why normalize to midnight?**
-`DateTime(2026, 4, 14, 9, 30)` and `DateTime(2026, 4, 14, 14, 0)` are NOT equal.
-`DateTime(2026, 4, 14)` and `DateTime(2026, 4, 14)` ARE equal.
-Normalizing makes the map key reliable regardless of event time.
-
----
-
-### Step 1 — Create `lib/screens/calendar_screen.dart`
-
-```dart
-import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:table_calendar/table_calendar.dart';
-import 'package:intl/intl.dart';
-import '../models/event.dart';
-import '../services/firestore_service.dart';
-import 'event_detail_screen.dart';
-
-class CalendarScreen extends StatefulWidget {
-  const CalendarScreen({super.key});
-
-  @override
-  State<CalendarScreen> createState() => _CalendarScreenState();
-}
-
-class _CalendarScreenState extends State<CalendarScreen> {
-  final FirestoreService _firestoreService = FirestoreService();
-
-  StreamSubscription<List<Event>>? _eventsSubscription;
-
-  // Map from a normalized date (midnight) to the events on that day.
-  // Using a Map lets _getEventsForDay do O(1) lookup instead of scanning a list.
-  Map<DateTime, List<Event>> _eventsByDay = {};
-
-  DateTime _focusedDay = DateTime.now(); // which month the calendar is showing
-  DateTime _selectedDay = DateTime.now(); // which day the user has tapped
+class _EventCardState extends State<_EventCard> {
+  late bool _hasHyped; // has the current user hyped this event?
+  late int  _hypeCount;
+  // "late" = I promise to set this before it's read. Set in initState() below.
 
   @override
   void initState() {
     super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    // Seed the initial state from the event snapshot.
+    // If the user's UID is in hypedBy, they have already hyped it.
+    _hasHyped  = uid != null && widget.event.hypedBy.contains(uid);
+    _hypeCount = widget.event.hypeCount;
+  }
 
-    _eventsSubscription = _firestoreService.getEventsStream().listen((events) {
-      final Map<DateTime, List<Event>> grouped = {};
-      for (final event in events) {
-        // Normalize to midnight — removes time-of-day from the key.
-        final day = DateTime(
-          event.createdAt.year,
-          event.createdAt.month,
-          event.createdAt.day,
-        );
-        // putIfAbsent: if the key doesn't exist yet, create an empty list first.
-        // Then add the event to whichever list belongs to that day.
-        grouped.putIfAbsent(day, () => []).add(event);
-      }
-      setState(() => _eventsByDay = grouped);
+  Future<void> _onHypeTapped() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final wasHyped = _hasHyped; // snapshot before we change anything
+
+    // OPTIMISTIC UPDATE — flip the UI immediately without waiting for Firestore.
+    // This makes the button feel instant. If Firestore fails we roll back.
+    setState(() {
+      _hasHyped   = !wasHyped;
+      _hypeCount += wasHyped ? -1 : 1;
+      // wasHyped = true means we are UN-hyping (subtract 1)
+      // wasHyped = false means we are hyping (add 1)
     });
+
+    try {
+      if (wasHyped) {
+        await _firestoreService.unhypeEvent(widget.event.id!, uid);
+      } else {
+        await _firestoreService.hypeEvent(widget.event.id!, uid);
+      }
+    } catch (_) {
+      // Firestore failed (no internet, permissions error, etc.) — roll back.
+      if (mounted) {
+        setState(() {
+          _hasHyped   = wasHyped;
+          _hypeCount += wasHyped ? 1 : -1;
+        });
+      }
+    }
+  }
+```
+
+The hype button uses two animations stacked together:
+
+```dart
+// TweenAnimationBuilder creates an animated value that goes from `begin` to `end`.
+// ValueKey(_hasHyped) restarts the animation every time _hasHyped flips — that
+// is what causes the bounce on each tap.
+TweenAnimationBuilder<double>(
+  key: ValueKey(_hasHyped),
+  tween: Tween(begin: 1.3, end: 1.0), // scale from 130% → 100%
+  duration: const Duration(milliseconds: 350),
+  curve: Curves.elasticOut, // overshoot then settle — feels springy
+  builder: (context, scale, child) =>
+      Transform.scale(scale: scale, child: child),
+
+  child: Row(children: [
+    // AnimatedSwitcher crossfades between two icons when its child changes.
+    // ValueKey(_hasHyped) tells it "this is a different child now, animate."
+    AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: Icon(
+        _hasHyped ? Icons.local_fire_department : Icons.local_fire_department_outlined,
+        key: ValueKey(_hasHyped),
+        color: _hasHyped ? Colors.orange : Colors.grey,
+      ),
+    ),
+    // AnimatedSwitcher slides the count number up when it changes.
+    AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      transitionBuilder: (child, animation) => SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.5), // start slightly below
+          end: Offset.zero,
+        ).animate(animation),
+        child: FadeTransition(opacity: animation, child: child),
+      ),
+      child: Text('$_hypeCount', key: ValueKey(_hypeCount)),
+    ),
+  ]),
+)
+```
+
+The card also shows a star rating badge and RSVP count when they exist:
+
+```dart
+// Star rating badge — only shown when at least one review exists
+if (widget.event.reviewCount > 0)
+  Row(children: [
+    const Icon(Icons.star, color: Colors.amber, size: 14),
+    Text(widget.event.averageRating.toStringAsFixed(1)),
+    // .toStringAsFixed(1) = format to 1 decimal place: 4.166... → "4.2"
+  ]),
+
+// RSVP count badge
+if (widget.event.rsvpCount > 0)
+  Row(children: [
+    const Icon(Icons.people, color: Colors.green, size: 14),
+    Text('${widget.event.rsvpCount}'),
+  ]),
+```
+
+---
+
+## 8. Event Detail Screen
+
+**What:** Full detail view for one event. Contains hype, RSVP, share, bookmark,
+attendee list, star ratings, review list, and a "Get Directions" button.
+**Where:** `lib/screens/event_detail_screen.dart`
+**Why StatefulWidget:** Manages multiple pieces of async state (has the user hyped?
+RSVP'd? saved? reviewed?) that all need to be loaded and updated independently.
+
+### State Fields
+
+```dart
+class _EventDetailScreenState extends State<EventDetailScreen> {
+  final FirestoreService _firestoreService = FirestoreService();
+
+  // Hype — seeded from the event snapshot, updated optimistically on tap
+  late bool _hasHyped;
+  late int  _hypeCount;
+
+  // RSVP — starts false, loaded async in _loadRsvpStatus()
+  bool _hasRsvpd = false;
+  late int _rsvpCount;
+
+  // Save/Favorites — starts false, loaded async in _loadSavedStatus()
+  bool _hasSaved = false;
+
+  // Rating — starts 0, loaded async in _loadReviewStatus()
+  int    _myRating = 0;
+  bool   _hasReviewed = false;
+  bool   _submittingReview = false;
+  late double _averageRating;
+  late int    _reviewCount;
+  final TextEditingController _commentController = TextEditingController();
+  // TextEditingController links to a TextField widget — reads what the user typed.
+  // Must be disposed in dispose() to free memory.
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    _hasHyped      = uid != null && widget.event.hypedBy.contains(uid);
+    _hypeCount     = widget.event.hypeCount;
+    _rsvpCount     = widget.event.rsvpCount;
+    _averageRating = widget.event.averageRating;
+    _reviewCount   = widget.event.reviewCount;
+
+    // These three are async — we can't await in initState(), so we call
+    // the methods and let them update state when they finish.
+    _loadRsvpStatus();
+    _loadSavedStatus();
+    _loadReviewStatus();
   }
 
   @override
   void dispose() {
-    _eventsSubscription?.cancel();
+    _commentController.dispose(); // always dispose controllers
     super.dispose();
   }
-
-  // Returns the list of events for a given day.
-  // table_calendar calls this for every visible day to know where to draw dots.
-  List<Event> _getEventsForDay(DateTime day) {
-    final key = DateTime(day.year, day.month, day.day); // normalize the lookup key too
-    return _eventsByDay[key] ?? []; // ?? [] means return empty list if no events
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final selectedEvents = _getEventsForDay(_selectedDay);
-
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Calendar',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: Colors.orange,
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          // --- CALENDAR WIDGET ---
-          Container(
-            color: Colors.white,
-            child: TableCalendar<Event>(
-              firstDay: DateTime.utc(2020, 1, 1),
-              lastDay: DateTime.utc(2030, 12, 31),
-              focusedDay: _focusedDay,
-
-              // selectedDayPredicate tells the calendar which day to highlight.
-              // isSameDay handles edge cases like timezone differences.
-              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-
-              // eventLoader is called for every visible day.
-              // Returning a non-empty list causes a dot to appear under that day.
-              eventLoader: _getEventsForDay,
-
-              onDaySelected: (selectedDay, focusedDay) {
-                setState(() {
-                  _selectedDay = selectedDay;
-                  _focusedDay = focusedDay; // keep the month view in sync
-                });
-              },
-
-              onPageChanged: (focusedDay) {
-                // User swiped to a different month — update focused day
-                // but don't change the selected day.
-                _focusedDay = focusedDay;
-              },
-
-              calendarStyle: CalendarStyle(
-                // The dot under days with events.
-                markerDecoration: const BoxDecoration(
-                  color: Colors.orange,
-                  shape: BoxShape.circle,
-                ),
-                // The circle around the selected day.
-                selectedDecoration: const BoxDecoration(
-                  color: Colors.orange,
-                  shape: BoxShape.circle,
-                ),
-                // Today shown lighter so it doesn't clash with the selected circle.
-                todayDecoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.35),
-                  shape: BoxShape.circle,
-                ),
-              ),
-
-              headerStyle: const HeaderStyle(
-                formatButtonVisible: false, // hide the "2 weeks" / "month" toggle
-                titleCentered: true,
-              ),
-            ),
-          ),
-
-          const Divider(height: 1),
-
-          // --- SELECTED DAY LABEL ---
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                DateFormat('MMMM d, yyyy').format(_selectedDay),
-                style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.bold, color: Colors.orange),
-              ),
-            ),
-          ),
-
-          // --- EVENT LIST FOR SELECTED DAY ---
-          Expanded(
-            child: selectedEvents.isEmpty
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.event_busy, size: 48, color: Colors.grey),
-                        SizedBox(height: 12),
-                        Text('No events on this day',
-                            style: TextStyle(color: Colors.grey, fontSize: 15)),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    itemCount: selectedEvents.length,
-                    itemBuilder: (context, index) {
-                      final event = selectedEvents[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: Colors.orange,
-                            child: Icon(Icons.event, color: Colors.white, size: 20),
-                          ),
-                          title: Text(event.name,
-                              style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: event.description.isNotEmpty
-                              ? Text(event.description,
-                                  maxLines: 1, overflow: TextOverflow.ellipsis)
-                              : null,
-                          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                          // Tapping an event from the calendar opens the same
-                          // detail screen used everywhere else.
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => EventDetailScreen(event: event)),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 ```
 
----
-
-### Step 2 — Add Calendar Tab to `home_screen.dart`
+### The Async Loaders
 
 ```dart
-import 'package:flutter/material.dart';
-import 'event_screen.dart';
-import 'calendar_screen.dart'; // <-- new import
-import '../main.dart';
+  Future<void> _loadRsvpStatus() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || widget.event.id == null) return;
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 0;
-
-  final List<Widget> _screens = [
-    const EventsScreen(),
-    const MapScreen(),
-    const CalendarScreen(), // <-- added
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        selectedItemColor: Colors.orange,
-        unselectedItemColor: Colors.grey,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Events'),
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_month), label: 'Calendar'), // <-- added
-        ],
-      ),
-    );
-  }
-}
-```
-
----
-
-## 8. Rating System (#23)
-
-### Concept
-
-Users can rate events 1–5 stars and leave an optional text review.
-Ratings are stored in a subcollection so each user gets exactly one review per event.
-The event document caches the average so cards can display it without reading the subcollection.
-
-**Firestore structure:**
-```
-events/
-  {eventId}/
-    reviews/
-      {userId}        ← one document per reviewer
-        rating: 4
-        comment: "Great event!"
-        createdAt: Timestamp
-
-    ratingSum: 32     ← running total of all stars given
-    reviewCount: 8    ← how many reviews exist
-    averageRating: 4.0  ← ratingSum / reviewCount (cached for fast display)
-```
-
-**Why store `ratingSum` separately?**
-To update the average when a user edits their review, we need to:
-`newAverage = (oldSum - oldRating + newRating) / reviewCount`
-
-If we only stored the average, we couldn't reverse-engineer the sum.
-`ratingSum` lets us recompute the average correctly without reading all reviews.
-
-**Why a transaction?**
-The review document and the event's `ratingSum` / `reviewCount` / `averageRating`
-must update together. A transaction guarantees this — if either write fails,
-neither happens. The counts stay accurate even with concurrent reviewers.
-
----
-
-### Step 1 — Add Rating Fields to the Event Model
-
-```dart
-class Event {
-  // ... existing fields ...
-
-  // Cached average star rating. Updated by the submitReview transaction.
-  // double because averages have decimals (e.g. 4.2).
-  final double averageRating;
-
-  // How many reviews have been submitted. Stored here so we can show
-  // "4.2 ★ (12 reviews)" on the card without reading the subcollection.
-  final int reviewCount;
-
-  Event({
-    // ... existing params ...
-    this.averageRating = 0.0,
-    this.reviewCount = 0,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      // ... existing fields ...
-      'averageRating': averageRating,
-      'reviewCount': reviewCount,
-    };
+    final hasRsvpd = await _firestoreService.checkUserRsvp(widget.event.id!, uid);
+    // "mounted" is true while the widget is on screen.
+    // Always check mounted before calling setState after an await — the user
+    // might have gone back while we were waiting for Firestore.
+    if (mounted) setState(() => _hasRsvpd = hasRsvpd);
   }
 
-  factory Event.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    return Event(
-      // ... existing fields ...
-      averageRating: (data['averageRating'] ?? 0).toDouble(),
-      reviewCount: (data['reviewCount'] ?? 0) as int,
-    );
+  Future<void> _loadSavedStatus() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || widget.event.id == null) return;
+
+    final hasSaved = await _firestoreService.checkEventSaved(widget.event.id!, uid);
+    if (mounted) setState(() => _hasSaved = hasSaved);
   }
-}
-```
 
----
+  Future<void> _loadReviewStatus() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || widget.event.id == null) return;
 
-### Step 2 — Firestore Service Methods
-
-```dart
-// submitReview — creates or updates a review and recomputes averageRating
-// atomically on the event document.
-Future<void> submitReview(
-  String eventId,
-  String uid,
-  int rating, {
-  String comment = '',
-}) async {
-  final eventRef  = _eventsCollection.doc(eventId);
-  final reviewRef = eventRef.collection('reviews').doc(uid);
-
-  await FirebaseFirestore.instance.runTransaction((transaction) async {
-    // We must read before any writes inside a transaction.
-    final reviewSnap = await transaction.get(reviewRef);
-    final eventSnap  = await transaction.get(eventRef);
-
-    final eventData    = eventSnap.data() as Map<String, dynamic>? ?? {};
-    final currentSum   = (eventData['ratingSum']   ?? 0) as num;
-    final currentCount = (eventData['reviewCount'] ?? 0) as num;
-
-    final int newSum;
-    final int newCount;
-
-    if (reviewSnap.exists) {
-      // User already reviewed — adjust sum without changing the count.
-      // This is why we store ratingSum: we can subtract the old rating
-      // and add the new one, giving the correct new average.
-      final oldRating = (reviewSnap.data() as Map<String, dynamic>)['rating'] as int;
-      newSum   = currentSum.toInt() - oldRating + rating;
-      newCount = currentCount.toInt(); // count stays the same
-    } else {
-      // First review from this user — increment both sum and count.
-      newSum   = currentSum.toInt() + rating;
-      newCount = currentCount.toInt() + 1;
-    }
-
-    // Recompute the average to cache on the event document.
-    final double newAverage = newCount > 0 ? newSum / newCount : 0.0;
-
-    // Write the review document (overwrites if it already exists).
-    transaction.set(reviewRef, {
-      'rating': rating,
-      'comment': comment.trim(),
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    // Update the event document with the new stats.
-    transaction.update(eventRef, {
-      'ratingSum': newSum,         // used for future average recalculation
-      'reviewCount': newCount,     // total number of reviews
-      'averageRating': newAverage, // the cached average shown on cards
-    });
-  });
-}
-
-// getUserReview — returns the current user's review data, or null if not reviewed.
-// Used on screen open to pre-fill the star widget with their existing rating.
-Future<Map<String, dynamic>?> getUserReview(String eventId, String uid) async {
-  final doc = await _eventsCollection
-      .doc(eventId)
-      .collection('reviews')
-      .doc(uid)
-      .get();
-  return doc.exists ? doc.data() : null;
-}
-
-// getReviewsStream — live stream of all reviews, newest first.
-Stream<QuerySnapshot> getReviewsStream(String eventId) {
-  return _eventsCollection
-      .doc(eventId)
-      .collection('reviews')
-      .orderBy('createdAt', descending: true)
-      .snapshots();
-}
-```
-
----
-
-### Step 3 — Rating UI in `EventDetailScreen`
-
-Add to `_EventDetailScreenState`:
-
-```dart
-// --- RATING STATE ---
-int _myRating = 0;              // 0 = no star selected yet
-bool _hasReviewed = false;      // true after a successful submission
-bool _submittingReview = false; // true while waiting for Firestore
-late double _averageRating;     // seeded from widget.event, updated after submit
-late int _reviewCount;          // seeded from widget.event, updated after submit
-final TextEditingController _commentController = TextEditingController();
-
-@override
-void initState() {
-  super.initState();
-  _averageRating = widget.event.averageRating;
-  _reviewCount   = widget.event.reviewCount;
-  _loadReviewStatus();
-}
-
-@override
-void dispose() {
-  _commentController.dispose(); // always dispose TextEditingControllers
-  super.dispose();
-}
-
-// _loadReviewStatus reads the subcollection to check if this user has reviewed.
-// If they have, we pre-fill their stars and comment so they can edit it.
-Future<void> _loadReviewStatus() async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null || widget.event.id == null) return;
-
-  final review = await _firestoreService.getUserReview(widget.event.id!, uid);
-  if (mounted && review != null) {
-    setState(() {
-      _hasReviewed = true;
-      _myRating = (review['rating'] as int?) ?? 0;
-      _commentController.text = (review['comment'] as String?) ?? '';
-    });
-  }
-}
-
-Future<void> _submitReview() async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null || widget.event.id == null || _myRating == 0) return;
-
-  // Capture the messenger BEFORE the first await.
-  // After an await, the widget may have been removed and 'context' is invalid.
-  final messenger = ScaffoldMessenger.of(context);
-
-  setState(() => _submittingReview = true);
-
-  try {
-    await _firestoreService.submitReview(
-      widget.event.id!,
-      uid,
-      _myRating,
-      comment: _commentController.text,
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _hasReviewed = true;
-      _submittingReview = false;
-    });
-
-    // Re-read the event doc to get the freshly computed average.
-    final updatedSnap = await FirebaseFirestore.instance
-        .collection('events')
-        .doc(widget.event.id)
-        .get();
-    if (mounted && updatedSnap.exists) {
-      final data = updatedSnap.data()!;
+    final review = await _firestoreService.getUserReview(widget.event.id!, uid);
+    if (mounted && review != null) {
       setState(() {
-        _averageRating = (data['averageRating'] ?? 0).toDouble();
-        _reviewCount   = (data['reviewCount']   ?? 0) as int;
+        _hasReviewed = true;
+        _myRating    = (review['rating']  as int?)    ?? 0;
+        _commentController.text = (review['comment'] as String?) ?? '';
       });
     }
-
-    messenger.showSnackBar(const SnackBar(content: Text('Review submitted!')));
-  } catch (_) {
-    if (mounted) setState(() => _submittingReview = false);
   }
-}
 ```
 
-Rating UI — add this to the build Column, after the attendee list:
+### Share Button
 
 ```dart
-// Gate: only show rating UI after the event date has passed.
-// widget.event.createdAt is always in the past, so all events are reviewable.
-// Swap createdAt for an eventDate field if you add one to the model later.
-if (widget.event.id != null &&
-    widget.event.createdAt.isBefore(DateTime.now())) ...[
-  const Divider(),
-  const SizedBox(height: 8),
+  void _onShareTapped() {
+    final date = DateFormat('MMM d, yyyy – h:mm a').format(widget.event.createdAt);
+    // DateFormat from the intl package formats a DateTime into a readable string.
+    // 'MMM d, yyyy' → "Apr 14, 2026"
 
-  // Average rating summary — only shown when reviews exist.
-  if (_reviewCount > 0)
-    Row(
-      children: [
-        const Icon(Icons.star, color: Colors.amber, size: 20),
-        const SizedBox(width: 4),
-        Text(_averageRating.toStringAsFixed(1),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(width: 6),
-        Text('($_reviewCount ${_reviewCount == 1 ? 'review' : 'reviews'})',
-            style: const TextStyle(fontSize: 14, color: Colors.grey)),
-      ],
-    ),
-  const SizedBox(height: 12),
+    final text = '''
+${widget.event.name}
 
-  // Submit / edit review form (only when logged in).
-  if (FirebaseAuth.instance.currentUser != null) ...[
-    Text(
-      _hasReviewed ? 'Your Review' : 'Rate This Event',
-      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-    ),
-    const SizedBox(height: 8),
+${widget.event.description.isNotEmpty ? widget.event.description : 'No description.'}
 
-    // 5-star tap row — List.generate creates 5 star icons.
-    Row(
-      children: List.generate(5, (i) {
-        final star = i + 1;
-        return GestureDetector(
-          onTap: () => setState(() => _myRating = star),
-          child: Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Icon(
-              // If _myRating is 3, stars 1-3 are filled, 4-5 are outlined.
-              _myRating >= star ? Icons.star : Icons.star_border,
-              color: Colors.amber,
-              size: 32,
-            ),
-          ),
+📅 $date
+📍 ${widget.event.latitude.toStringAsFixed(5)}, ${widget.event.longitude.toStringAsFixed(5)}
+
+Shared via Campus Vibes'''.trim();
+    // ''' ''' = multi-line string literal. $ inserts a variable's value.
+    // .trim() removes leading/trailing whitespace from the entire block.
+
+    Share.share(text, subject: widget.event.name);
+    // Share.share() hands the text to the OS.
+    // iOS opens the native share sheet (Messages, AirDrop, Mail, etc.)
+    // Android opens the intent chooser.
+  }
+```
+
+### RSVP Toggle
+
+```dart
+  Future<void> _onRsvpTapped() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final wasRsvpd = _hasRsvpd;
+    setState(() {             // optimistic update
+      _hasRsvpd   = !wasRsvpd;
+      _rsvpCount += wasRsvpd ? -1 : 1;
+    });
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (wasRsvpd) {
+        await _firestoreService.unrsvpEvent(widget.event.id!, uid);
+      } else {
+        await _firestoreService.rsvpEvent(
+          widget.event.id!, uid,
+          displayName: user?.displayName,
+          email:       user?.email,
         );
-      }),
-    ),
-    const SizedBox(height: 10),
-
-    // Optional comment text field.
-    TextField(
-      controller: _commentController,
-      maxLines: 3,
-      decoration: InputDecoration(
-        hintText: 'Leave a comment (optional)',
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        contentPadding: const EdgeInsets.all(12),
-      ),
-    ),
-    const SizedBox(height: 10),
-
-    SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        // Disabled (null onPressed) until a star is selected.
-        onPressed: (_myRating == 0 || _submittingReview) ? null : _submitReview,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.amber,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-        child: _submittingReview
-            ? const SizedBox(
-                height: 18, width: 18,
-                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-              )
-            : Text(_hasReviewed ? 'Update Review' : 'Submit Review'),
-      ),
-    ),
-    const SizedBox(height: 16),
-  ],
-
-  // Expandable review list — only shown when reviews exist.
-  if (_reviewCount > 0)
-    _ReviewList(eventId: widget.event.id!, firestoreService: _firestoreService),
-],
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {         // roll back on failure
+          _hasRsvpd   = wasRsvpd;
+          _rsvpCount += wasRsvpd ? 1 : -1;
+        });
+      }
+    }
+  }
 ```
 
----
-
-### Step 4 — Review List Widget
+### Rating Submit
 
 ```dart
-// _ReviewList shows all reviews in a collapsible ExpansionTile.
-// StreamBuilder keeps it live — new reviews appear without refreshing.
-class _ReviewList extends StatelessWidget {
-  final String eventId;
-  final FirestoreService firestoreService;
+  Future<void> _submitReview() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || widget.event.id == null || _myRating == 0) return;
 
-  const _ReviewList({required this.eventId, required this.firestoreService});
+    // Capture ScaffoldMessenger BEFORE the first await.
+    // After an await, "context" might no longer be valid (widget disposed).
+    // Storing it in a variable before the await is the safe pattern.
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() => _submittingReview = true);
+
+    try {
+      await _firestoreService.submitReview(
+        widget.event.id!, uid, _myRating, comment: _commentController.text);
+
+      if (!mounted) return;
+      setState(() { _hasReviewed = true; _submittingReview = false; });
+
+      // Re-read the event doc to get the freshly computed average.
+      final snap = await FirebaseFirestore.instance
+          .collection('events').doc(widget.event.id).get();
+      if (mounted && snap.exists) {
+        final data = snap.data()!;
+        setState(() {
+          _averageRating = (data['averageRating'] ?? 0).toDouble();
+          _reviewCount   = (data['reviewCount']   ?? 0) as int;
+        });
+      }
+
+      messenger.showSnackBar(const SnackBar(content: Text('Review submitted!')));
+    } catch (_) {
+      if (mounted) setState(() => _submittingReview = false);
+    }
+  }
+```
+
+### Star Rating UI
+
+```dart
+// 5-star tap row — List.generate creates a list of 5 items.
+// The builder receives the index (0–4). star = index + 1 = (1–5).
+Row(
+  children: List.generate(5, (i) {
+    final star = i + 1;
+    return GestureDetector(
+      onTap: () => setState(() => _myRating = star),
+      child: Icon(
+        _myRating >= star ? Icons.star : Icons.star_border,
+        // If _myRating is 3: stars 1,2,3 are filled; 4 and 5 are outlined.
+        color: Colors.amber,
+        size: 32,
+      ),
+    );
+  }),
+),
+
+// Submit button — disabled (null onPressed) until a star is selected.
+ElevatedButton(
+  onPressed: (_myRating == 0 || _submittingReview) ? null : _submitReview,
+  child: _submittingReview
+      ? const CircularProgressIndicator(color: Colors.white)
+      : Text(_hasReviewed ? 'Update Review' : 'Submit Review'),
+),
+```
+
+### Reusable Animated Action Row (Hype + RSVP buttons)
+
+Both the Hype and RSVP buttons on the detail screen share the same visual pattern —
+a button that bounces on tap, plus an animated count beside it. We extract this into
+one reusable widget to avoid duplicating the animation code.
+
+```dart
+// _AnimatedActionRow is used for both Hype and RSVP:
+//   [animated button]   [sliding count text]
+//
+// Parameters let the caller configure the labels, icons, and colors.
+// The widget doesn't need to know it's being used for hype vs RSVP.
+class _AnimatedActionRow extends StatelessWidget {
+  final bool isActive;
+  final int count;
+  final String activeLabel, inactiveLabel, countSuffix;
+  final IconData activeIcon, inactiveIcon;
+  final Color activeColor;
+  final VoidCallback? onTap; // null = button is disabled
+
+  // ...
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ExpansionTile(
-        leading: const Icon(Icons.rate_review, color: Colors.amber),
-        title: const Text('Reviews',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-        children: [
-          StreamBuilder<QuerySnapshot>(
-            stream: firestoreService.getReviewsStream(eventId),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: CircularProgressIndicator(color: Colors.amber),
-                );
-              }
-
-              final reviews = snapshot.data?.docs ?? [];
-
-              if (reviews.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No reviews yet.', style: TextStyle(color: Colors.grey)),
-                );
-              }
-
-              return ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: reviews.length,
-                separatorBuilder: (_, _) =>
-                    const Divider(height: 1, indent: 16, endIndent: 16),
-                itemBuilder: (context, index) {
-                  final data = reviews[index].data() as Map<String, dynamic>;
-                  final rating  = (data['rating']  as int?)    ?? 0;
-                  final comment = (data['comment'] as String?)?.trim() ?? '';
-
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Display the star rating as a row of filled/outlined icons.
-                        Row(
-                          children: List.generate(5, (i) => Icon(
-                            i < rating ? Icons.star : Icons.star_border,
-                            color: Colors.amber,
-                            size: 16,
-                          )),
-                        ),
-                        if (comment.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(comment,
-                              style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                        ],
-                      ],
-                    ),
-                  );
-                },
-              );
-            },
+    return Row(children: [
+      // Bounce animation on toggle
+      TweenAnimationBuilder<double>(
+        key: ValueKey(isActive),
+        tween: Tween(begin: 1.25, end: 1.0),
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.elasticOut,
+        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+        child: ElevatedButton.icon(
+          onPressed: onTap,
+          icon: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: Icon(isActive ? activeIcon : inactiveIcon, key: ValueKey(isActive)),
           ),
-        ],
+          label: Text(isActive ? activeLabel : inactiveLabel),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isActive ? activeColor.withValues(alpha: 0.1) : null,
+            foregroundColor: isActive ? activeColor : null,
+          ),
+        ),
       ),
-    );
+      const SizedBox(width: 12),
+      // Count slides up when the number changes
+      AnimatedSwitcher(
+        duration: const Duration(milliseconds: 250),
+        transitionBuilder: (child, animation) => SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.5), end: Offset.zero).animate(animation),
+          child: FadeTransition(opacity: animation, child: child),
+        ),
+        child: Text('$count $countSuffix', key: ValueKey(count)),
+      ),
+    ]);
   }
 }
 ```
 
 ---
 
-### Step 5 — Star Rating Badge on Event Cards
+## 9. Calendar Screen
 
-In `_EventCardState.build()`, add a star badge to the card's bottom info row:
+**What:** A monthly calendar view of events. Days with events show an orange dot.
+Tapping a day shows the events for that day in a list below the calendar.
+Tapping an event opens its detail screen.
+**Where:** `lib/screens/calendar_screen.dart`
+**Package used:** `table_calendar`
+
+### How Events Are Grouped by Day
 
 ```dart
-// Show the average star rating if at least one review exists.
-// toStringAsFixed(1) formats 4.1666... as "4.2"
-if (widget.event.reviewCount > 0)
-  Row(
-    children: [
-      const Icon(Icons.star, color: Colors.amber, size: 14),
-      const SizedBox(width: 2),
-      Text(
-        widget.event.averageRating.toStringAsFixed(1),
-        style: const TextStyle(
-          fontSize: 12,
-          color: Colors.amber,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      const SizedBox(width: 8),
-    ],
+// We group events into a Map<DateTime, List<Event>>.
+// The key is a "normalized" DateTime — midnight of that day.
+//
+// WHY normalize to midnight?
+// DateTime(2026, 4, 14, 9, 30) and DateTime(2026, 4, 14, 14, 0) are NOT equal.
+// DateTime(2026, 4, 14) and DateTime(2026, 4, 14) ARE equal.
+// Normalizing ensures all events on the same calendar day land in the same bucket.
+Map<DateTime, List<Event>> _eventsByDay = {};
+
+_eventsSubscription = _firestoreService.getEventsStream().listen((events) {
+  final Map<DateTime, List<Event>> grouped = {};
+  for (final event in events) {
+    final day = DateTime(
+      event.createdAt.year,
+      event.createdAt.month,
+      event.createdAt.day, // time-of-day is stripped — only year/month/day kept
+    );
+    // putIfAbsent: if no list exists for this day yet, create one first.
+    grouped.putIfAbsent(day, () => []).add(event);
+  }
+  setState(() => _eventsByDay = grouped);
+});
+
+// _getEventsForDay is called by table_calendar for every visible day.
+// Returning a non-empty list causes a dot indicator to appear under that day.
+List<Event> _getEventsForDay(DateTime day) {
+  final key = DateTime(day.year, day.month, day.day); // normalize lookup key too
+  return _eventsByDay[key] ?? []; // ?? [] = empty list if no events that day
+}
+```
+
+### The TableCalendar Widget
+
+```dart
+TableCalendar<Event>(
+  firstDay: DateTime.utc(2020, 1, 1),
+  lastDay:  DateTime.utc(2030, 12, 31),
+  focusedDay: _focusedDay,
+  // focusedDay = which month the calendar is currently showing
+
+  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+  // isSameDay() handles timezone edge cases — safer than == for dates
+
+  eventLoader: _getEventsForDay,
+  // table_calendar calls this for every visible day.
+  // If the list is non-empty, it draws a dot under that day.
+
+  onDaySelected: (selectedDay, focusedDay) {
+    setState(() {
+      _selectedDay = selectedDay; // update which day is highlighted
+      _focusedDay  = focusedDay;  // keep the month view in sync
+    });
+  },
+
+  calendarStyle: CalendarStyle(
+    markerDecoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+    // markerDecoration = the dot style under days that have events
+
+    selectedDecoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+    // selectedDecoration = the circle around the tapped/selected day
+
+    todayDecoration: BoxDecoration(
+      color: Colors.orange.withValues(alpha: 0.35), // lighter so it doesn't clash
+      shape: BoxShape.circle,
+    ),
   ),
+
+  headerStyle: const HeaderStyle(
+    formatButtonVisible: false, // hide the "Month / 2 weeks" toggle button
+    titleCentered: true,
+  ),
+),
 ```
 
 ---
 
-## Key Patterns Reference
+## 10. Live Navigation
 
-| Pattern | Where used | Why |
+**What:** A full walking navigation screen. Shows a Mapbox map with a blue route line
+from the user's GPS position to the event. The line shrinks as the user walks.
+Automatically reroutes if the user goes off-path. Shows an arrival overlay when they get close.
+Also lets the user swap the GPS puck icon between two custom images.
+**Where:** `lib/screens/live_navigation.dart`
+**Supporting files:**
+- `lib/logic/navigation_access_evaluator.dart` — GPS permission logic
+- `lib/config/app_config.dart` — Mapbox token + dev flags
+- `lib/services/app_logger.dart` — debug logging helper
+
+### NavigationPhase — The State Machine
+
+```dart
+// An enum is a fixed set of named values.
+// The screen is always in exactly ONE phase at a time.
+// This drives what gets shown to the user.
+enum NavigationPhase {
+  initializing, // map loaded, setting up GPS and permission
+  loadingRoute, // waiting for Directions API response
+  tracking,     // route is drawn, GPS stream is running
+  rerouting,    // user went off-route, recalculating
+  arrived,      // within 12 m of destination
+  error,        // something failed
+}
+```
+
+### Key State Fields
+
+```dart
+MapboxMap? _mapboxMap;
+// Null until the Mapbox SDK calls _onMapCreated().
+
+StreamSubscription<geo.Position>? _positionStream;
+// The live GPS stream subscription. Cancel in dispose() or GPS runs forever.
+
+// Source/layer IDs — must be unique strings in the Mapbox style.
+static const _routeSourceId = 'live-route-source';
+static const _routeLayerId  = 'live-route-layer';
+
+// Navigation thresholds
+static const double _minMovementMeters      = 2.0;  // ignore GPS wobble smaller than this
+static const double _offRouteThresholdMeters = 40.0; // reroute if farther than this from route
+static const double _arrivalThresholdMeters  = 12.0; // "arrived" when this close to destination
+static const Duration _rerouteCooldown = Duration(seconds: 20); // wait between reroutes
+
+List<List<double>> _fullRouteCoords = [];
+// The walking route as a list of [longitude, latitude] pairs.
+// IMPORTANT: Mapbox uses [lng, lat] order — opposite of the common [lat, lng].
+// We trim from the front of this list as the user walks forward.
+
+int _lastClosestIndex = 0;
+// Index into _fullRouteCoords of the route point nearest to the user.
+// Used to find the "trim point" — everything before this is behind the user.
+
+String _currentIcon = "assets/pic1a.png";
+// Which custom puck icon is currently displayed.
+// Toggled by the FAB button.
+```
+
+### The Navigation Flow
+
+```dart
+// Called once when the map style loads. This kicks off the full sequence.
+Future<void> _startNavigationFlow() async {
+  // 1. Check GPS permission
+  final canUseLiveLocation = await _resolveLocationAccess();
+
+  // 2. Show/hide the GPS puck dot
+  await _configureLocationPuck(canUseLiveLocation);
+
+  if (!canUseLiveLocation) return; // show error, stop here
+
+  // 3. Fetch walking route from Mapbox Directions API
+  final routeLoaded = await _recalculateRoute(useDeviceLocation: true);
+  if (!routeLoaded) return;
+
+  // 4. Start continuous GPS stream
+  _startPositionTracking();
+
+  // 5. Switch camera to follow the user's puck
+  _transitionToFollowPuck();
+}
+```
+
+### How the Route Gets Drawn — Mapbox Sources and Layers
+
+```dart
+// In Mapbox, drawing anything on the map takes two steps:
+//   Source = the data container (holds GeoJSON — geographic shape data as JSON)
+//   Layer  = the visual style rule (how to draw the source: blue line, 5px wide)
+
+// STEP 1: Add an empty source (no route yet)
+await _mapboxMap!.style.addSource(
+  GeoJsonSource(
+    id: _routeSourceId,
+    data: '{"type":"FeatureCollection","features":[]}',
+    // FeatureCollection with zero features = nothing drawn yet
+  ),
+);
+
+// STEP 2: Add a line layer that reads from that source
+await _mapboxMap!.style.addLayer(
+  LineLayer(
+    id: _routeLayerId,
+    sourceId: _routeSourceId, // connects this layer to the source above
+    lineColor: Colors.blue.toARGB32(), // toARGB32() converts Flutter Color → int
+    lineWidth: 5.0,
+  ),
+);
+
+// LATER: update just the source data — the layer redraws automatically.
+await _mapboxMap!.style.setStyleSourceProperty(
+  _routeSourceId,
+  'data',
+  routeGeoJson, // the JSON string with the route coordinates
+);
+```
+
+### Fetching the Route — Mapbox Directions API
+
+```dart
+// The Directions API returns a GeoJSON LineString — a list of [lng, lat] points
+// that trace the walking path.
+//
+// URL format:
+// /directions/v5/mapbox/walking/{startLng},{startLat};{destLng},{destLat}
+// ?geometries=geojson  ← return route as GeoJSON
+// &access_token=...    ← your Mapbox API key
+
+final uri = Uri.parse(
+  'https://api.mapbox.com/directions/v5/mapbox/walking/'
+  '$startLng,$startLat;${widget.destLng},${widget.destLat}'
+  '?geometries=geojson&access_token=${AppConfig.mapboxAccessToken}',
+);
+
+// Retry up to 3 times with exponential backoff (700ms → 1400ms → 2800ms).
+// Backoff = wait longer between each retry so we don't spam the API.
+for (int attempt = 1; attempt <= 3; attempt++) {
+  final response = await http.get(uri).timeout(Duration(seconds: 10));
+  if (response.statusCode == 200) {
+    return _extractRouteCoordinates(response.body); // success
+  }
+  await Future.delayed(backoff);
+  backoff = Duration(milliseconds: backoff.inMilliseconds * 2);
+}
+```
+
+### Route Trimming — Making the Line Shrink
+
+```dart
+// Called on every GPS update while tracking.
+void _updateRouteProgress(geo.Position position) {
+
+  // Find which route point is nearest to the user right now.
+  // Returns both the index and the distance in meters.
+  final (closestIndex, minDistance) = _findClosestRoutePoint(position);
+
+  // Check arrival
+  final distToDestination = geo.Geolocator.distanceBetween(
+    position.latitude, position.longitude, widget.destLat, widget.destLng);
+
+  if (distToDestination <= 12.0) {
+    // Show arrival overlay and stop tracking
+    setState(() => _phase = NavigationPhase.arrived);
+    return;
+  }
+
+  // Check off-route
+  if (minDistance > 40.0) {
+    unawaited(_rerouteFromPosition(position, minDistance));
+    // unawaited() = fire and forget. We can't await in a non-async function.
+    return;
+  }
+
+  // Trim the route — discard everything behind the user.
+  // sublist(closestIndex) creates a NEW list starting at closestIndex.
+  // Everything before that index is behind the user — we drop it.
+  // This is what makes the blue line shrink as the user walks forward.
+  final remainingRoute = _fullRouteCoords.sublist(closestIndex);
+  unawaited(_updateMapWithCoords(remainingRoute));
+}
+```
+
+### Custom GPS Puck Icons
+
+The GPS puck is the dot that appears on the map at the user's location.
+This feature replaces the default blue circle with a custom image from the app's assets,
+and adds a button to toggle between two different icons.
+
+```dart
+// FloatingActionButton in the Scaffold — appears bottom-right over the map.
+floatingActionButton: FloatingActionButton(
+  onPressed: _chooseIcon,
+  child: const Icon(Icons.image), // picture icon = "change the puck icon"
+),
+```
+
+```dart
+// _chooseIcon() toggles the puck icon and applies it to the live map.
+void _chooseIcon() async {
+  if (_mapboxMap == null) return;
+
+  // Ternary expression: condition ? value_if_true : value_if_false
+  // Flip between the two icon asset paths.
+  setState(() {
+    _currentIcon = _currentIcon == "assets/pic1a.png"
+        ? "assets/pic1b.png"
+        : "assets/pic1a.png";
+  });
+
+  // rootBundle.load() reads a file from the assets/ folder.
+  // Returns ByteData — the raw binary content of the image file.
+  // await pauses here until the file is fully read.
+  final ByteData bytes = await rootBundle.load(_currentIcon);
+
+  // Convert ByteData → Uint8List (unsigned 8-bit integer list = raw bytes).
+  // Mapbox's LocationPuck2D.topImage requires Uint8List — not a file path,
+  // not an AssetImage, but the actual raw bytes of the image.
+  final Uint8List imageData = bytes.buffer.asUint8List();
+
+  // Apply the new icon to the live location puck on the map.
+  _mapboxMap!.location.updateSettings(
+    LocationComponentSettings(
+      enabled:            true, // keep the puck visible
+      puckBearingEnabled: true, // keep rotating with device heading
+      locationPuck: LocationPuck(
+        locationPuck2D: LocationPuck2D(
+          topImage: imageData,
+          // topImage = the main icon drawn at the user's position.
+          // Mapbox also supports shadowImage (shadow under the puck)
+          // and bearingImage (directional arrow) for a layered puck look.
+        ),
+      ),
+    ),
+  );
+}
+```
+
+### Permission Checking — NavigationAccessEvaluator
+
+GPS permission is checked in a separate file (`lib/logic/navigation_access_evaluator.dart`)
+rather than inside `live_navigation.dart`. This separation makes the logic independently
+testable — you can verify every permission scenario without needing a real device or map.
+
+```dart
+// Two things must BOTH be true before navigation can work:
+//   1. Location Services ON system-wide (the GPS toggle in phone Settings)
+//   2. This app has been granted location permission by the user
+
+final serviceEnabled = await geo.Geolocator.isLocationServiceEnabled();
+geo.LocationPermission permission = await geo.Geolocator.checkPermission();
+
+// If denied but not permanently, show the system dialog to ask the user.
+if (serviceEnabled && permission == geo.LocationPermission.denied) {
+  permission = await geo.Geolocator.requestPermission();
+}
+
+// NavigationAccessEvaluator reads the results and returns a decision:
+//   canUseLiveLocation = true → everything is fine, start navigation
+//   canUseLiveLocation = false → show message + action buttons (Retry, Settings)
+final decision = NavigationAccessEvaluator.evaluate(
+  serviceEnabled: serviceEnabled,
+  permission: permission,
+);
+```
+
+### AppConfig — Mapbox Token
+
+```dart
+// lib/config/app_config.dart
+//
+// String.fromEnvironment reads a value passed via --dart-define at compile time.
+// If no value is passed, defaultValue is used.
+// This keeps the token out of version control in production.
+//
+// Usage: flutter run --dart-define=MAPBOX_ACCESS_TOKEN=pk.your_token_here
+
+class AppConfig {
+  AppConfig._(); // private constructor — never instantiated, only static access
+
+  static const String mapboxAccessToken = String.fromEnvironment(
+    'MAPBOX_ACCESS_TOKEN',
+    defaultValue: 'pk.eyJ1...', // hardcoded fallback for development
+  );
+}
+```
+
+---
+
+## Key Patterns Quick Reference
+
+| Pattern | What it does | Where used |
 |---|---|---|
-| Optimistic update | Hype, RSVP, Save | UI feels instant; rolls back on failure |
-| Firestore transaction | RSVP, Rating | Keeps count + subcollection in sync atomically |
-| `FieldValue.arrayUnion/Remove` | Hype | Server-safe array mutation; prevents duplicates |
-| `FieldValue.increment` | Hype, RSVP, Rating | Atomic counter; no race conditions |
-| `StreamSubscription` + `dispose()` | Events screen, Calendar | Prevents memory leaks |
-| `Set<String>` for IDs | Favorites | O(1) `.contains()` lookup |
-| Normalize DateTime to midnight | Calendar | Reliable map key regardless of time-of-day |
-| `mounted` check after `await` | All async state | Prevents setState on a disposed widget |
-| Capture `ScaffoldMessenger` before `await` | Rating submit | Prevents invalid BuildContext after async gap |
+| Optimistic update | Flip UI immediately, write to Firestore, roll back on failure | Hype, RSVP, Save |
+| Firestore transaction | Multiple reads/writes that succeed or fail together — no partial updates | RSVP, Rating |
+| `FieldValue.arrayUnion/Remove` | Add/remove from array without duplicates, server-side safe | Hype |
+| `FieldValue.increment` | Atomic counter — no race conditions even with concurrent users | Hype, RSVP, Rating |
+| `StreamSubscription` + `dispose()` | Listen to live data; cancel when screen closes to prevent leaks | Events screen, Calendar, Map |
+| `Set<String>` for ID lookup | O(1) `.contains()` — instant regardless of how many items | Saved event IDs |
+| `late` keyword | "I promise to set this before it's read" — set in `initState()` | Hype/RSVP counts |
+| `mounted` check after `await` | Prevents `setState()` on a widget that was removed while waiting | All async state methods |
+| Capture `ScaffoldMessenger` before `await` | Prevents using an invalid `context` after an async gap | Rating submit |
+| Normalize `DateTime` to midnight | Reliable map key for grouping events by calendar day | Calendar screen |
+| Client-side sort vs Firestore `orderBy` | Avoids Firestore excluding old documents that lack the sort field | Hype sorting |
+| `unawaited()` | Fire-and-forget an async call from a non-async function | Route trimming, rerouting |

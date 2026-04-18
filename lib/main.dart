@@ -4,9 +4,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'screens/home_screen.dart';
 
 // For JSON encoding/decoding of the Directions API response
-import 'dart:convert';
 // For making HTTPS requests to the Mapbox Directions API
-import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'services/auth_service.dart';
 import 'screens/login_screen.dart';
