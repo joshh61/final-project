@@ -73,6 +73,10 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  static const int _maxEventTitleLength = 30;
+  static const int _maxEventDescriptionLength = 225;
+
+
   MapboxMap? _mapboxMap;
 
   // Manager for circle annotations (your event markers)
@@ -260,7 +264,40 @@ class _MapScreenState extends State<MapScreen> {
         actions: [
           TextButton(
             onPressed: () {
-              _saveEvent(coords, name, desc);
+
+              final trimmedName = name.trim();
+              final trimmedDesc = desc.trim();
+
+              if (trimmedName.isEmpty || trimmedDesc.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Title and description cannot be empty')),
+                );
+                return;
+              }
+
+              if (trimmedName.length > _maxEventTitleLength) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Title must be $_maxEventTitleLength characters or less',
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              if (trimmedDesc.length > _maxEventDescriptionLength) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Description must be $_maxEventDescriptionLength characters or less',
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              _saveEvent(coords, trimmedName, trimmedDesc);
               Navigator.pop(context);
             },
             child: const Text("Add"),
