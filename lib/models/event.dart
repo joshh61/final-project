@@ -14,6 +14,7 @@ class Event {
   final String description;
   final double latitude;
   final double longitude;
+  final String createdBy; //for anti break
 
   // When the event was created. Firestore has its own Timestamp type,
   // but we convert it to Dart's DateTime for easier use in the app.
@@ -53,6 +54,7 @@ class Event {
     this.rsvpCount = 0,
     this.averageRating = 0.0,
     this.reviewCount = 0,
+    required this.createdBy,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Converts this Event object into a Map that Firestore can store.
@@ -72,6 +74,7 @@ class Event {
       'rsvpCount': rsvpCount,
       'averageRating': averageRating,
       'reviewCount': reviewCount,
+      'createdBy': createdBy,
     };
   }
 
@@ -97,6 +100,7 @@ class Event {
       rsvpCount: (data['rsvpCount'] ?? 0) as int,
       averageRating: (data['averageRating'] ?? 0).toDouble(),
       reviewCount: (data['reviewCount'] ?? 0) as int,
+      createdBy: data['createdBy'] ?? '',
     );
   }
 }

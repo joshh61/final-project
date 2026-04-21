@@ -15,6 +15,7 @@ import 'firebase_options.dart';
 // Firestore service and Event model
 import 'services/firestore_service.dart';
 import 'models/event.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -272,11 +273,28 @@ class _MapScreenState extends State<MapScreen> {
   // Save event to Firestore. The stream listener will automatically
   // pick up the new event and draw it on the map.
   Future<void> _saveEvent(Position coords, String name, String desc) async {
+
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('events')
+        .where('createdBy', isEqualTo: uid)
+        .get();
+
+    if (snapshot.docs.length >= 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("You can only create 3 events")),
+      );
+      return;
+    }
+
+
     final event = Event(
       name: name,
       description: desc,
       latitude: coords.lat.toDouble(),
       longitude: coords.lng.toDouble(),
+      createdBy: uid,
     );
     await _firestoreService.addEvent(event);
   }
