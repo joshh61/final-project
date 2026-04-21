@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/event.dart';
 
 /// Handles all Firestore database operations for events.
@@ -256,6 +259,16 @@ class FirestoreService {
         .doc(uid)
         .get();
     return doc.exists ? doc.data() : null;
+  }
+
+  /// Uploads an image file to Firebase Storage and returns the download URL.
+  /// Images are stored under event_images/ with a timestamp-based filename.
+  Future<String> uploadEventImage(XFile imageFile) async {
+    final ref = FirebaseStorage.instance
+        .ref()
+        .child('event_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
+    await ref.putFile(File(imageFile.path));
+    return await ref.getDownloadURL();
   }
 
   /// Real-time stream of all reviews for an event, newest first.

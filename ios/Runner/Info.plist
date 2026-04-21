@@ -47,6 +47,8 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Campus Vibes needs access to your photo library to attach images to events.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Campus Vibes needs your location to show walking directions to events.</string>
 	<key>NSLocationAlwaysUsageDescription</key>

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -308,6 +309,30 @@ Shared via Campus Vibes''';
               ),
             ),
             const SizedBox(height: 16),
+
+            // Event photo (if one was attached)
+            if (widget.event.imageUrl != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: CachedNetworkImage(
+                  imageUrl: widget.event.imageUrl!,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => const AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: Center(
+                        child: CircularProgressIndicator(color: Colors.orange)),
+                  ),
+                  errorWidget: (context, url, error) => const SizedBox(
+                    height: 80,
+                    child: Center(
+                        child: Icon(Icons.broken_image,
+                            color: Colors.grey, size: 40)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // Description
             Text(

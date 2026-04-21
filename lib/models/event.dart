@@ -41,6 +41,9 @@ class Event {
   // can show "4.2 ★ (12)" without reading the reviews subcollection.
   final int reviewCount;
 
+  // Optional Firebase Storage download URL for a photo attached to this event.
+  final String? imageUrl;
+
   Event({
     this.id,
     required this.name,
@@ -53,6 +56,7 @@ class Event {
     this.rsvpCount = 0,
     this.averageRating = 0.0,
     this.reviewCount = 0,
+    this.imageUrl,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Converts this Event object into a Map that Firestore can store.
@@ -72,6 +76,7 @@ class Event {
       'rsvpCount': rsvpCount,
       'averageRating': averageRating,
       'reviewCount': reviewCount,
+      if (imageUrl != null) 'imageUrl': imageUrl,
     };
   }
 
@@ -97,6 +102,7 @@ class Event {
       rsvpCount: (data['rsvpCount'] ?? 0) as int,
       averageRating: (data['averageRating'] ?? 0).toDouble(),
       reviewCount: (data['reviewCount'] ?? 0) as int,
+      imageUrl: data['imageUrl'] as String?,
     );
   }
 }
