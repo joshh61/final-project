@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/event.dart';
@@ -343,6 +344,25 @@ class _EventCardState extends State<_EventCard> {
                 ],
               ),
             ),
+
+            // ── Event photo ─────────────────────────────────────────────────
+            if (widget.event.imageUrl != null)
+              CachedNetworkImage(
+                imageUrl: widget.event.imageUrl!,
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                placeholder: (context, url) => const SizedBox(
+                  height: 160,
+                  child: Center(
+                      child: CircularProgressIndicator(color: Colors.orange)),
+                ),
+                errorWidget: (context, url, error) => const SizedBox(
+                  height: 60,
+                  child: Center(
+                      child: Icon(Icons.broken_image, color: Colors.grey)),
+                ),
+              ),
 
             // ── Event details ───────────────────────────────────────────────
             Padding(
