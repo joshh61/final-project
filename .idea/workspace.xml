@@ -11,6 +11,8 @@
   <component name="ChangeListManager">
     <list default="true" id="05b0b367-9acd-4a12-a359-a2656d52852d" name="Changes" comment="Working pin creation/read (on tap).">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/lib/main.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lib/models/event.dart" beforeDir="false" afterPath="$PROJECT_DIR$/lib/models/event.dart" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -68,7 +70,7 @@
     "cf.first.check.clang-format": "false",
     "cidr.known.project.marker": "true",
     "dart.analysis.tool.window.visible": "false",
-    "git-widget-placeholder": "navigationIcons",
+    "git-widget-placeholder": "antibreak",
     "io.flutter.project.isFirstOpen": "true",
     "kotlin-language-version-configured": "true",
     "last_opened_file_path": "/Users/rickparis/FinalProj/final-project",
