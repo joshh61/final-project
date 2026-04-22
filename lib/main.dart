@@ -76,6 +76,12 @@ class _MapScreenState extends State<MapScreen> {
   static const int _maxEventTitleLength = 30;
   static const int _maxEventDescriptionLength = 225;
 
+  bool _isWithinEventCreationBounds(Position coords) { //for event creation, technicality (not precise but accurate)
+    return coords.lat >= 26.30273 &&
+        coords.lat <= 26.31152 &&
+        coords.lng >= -98.18600 &&
+        coords.lng <= -98.16800;
+  }
 
   MapboxMap? _mapboxMap;
 
@@ -145,6 +151,17 @@ class _MapScreenState extends State<MapScreen> {
         // Tap on the map to add a new event marker
         onTapListener: (ctx) {
           final coords = ctx.point.coordinates;
+
+          if (!_isWithinEventCreationBounds(coords)) { //restricting the user
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Events can only be created inside campus event bounds'),
+              ),
+            );
+            return;
+          }
+
+
           _showAddDialog(coords);
         },
       ),
