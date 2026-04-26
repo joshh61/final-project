@@ -161,6 +161,36 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   String? get _currentUid => FirebaseAuth.instance.currentUser?.uid;
 
+  Widget _priceBadge(bool isFree) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: isFree ? Colors.green.shade600 : Colors.red.shade600,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isFree ? Icons.money_off : Icons.attach_money,
+            color: Colors.white,
+            size: 14,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            isFree ? 'Free Event' : 'Paid Event',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Save toggle ─────────────────────────────────────────────────────────────
 
   Future<void> _onSaveTapped() async {
@@ -308,6 +338,8 @@ Shared via Campus Vibes''';
                 color: Colors.orange,
               ),
             ),
+            const SizedBox(height: 8),
+            _priceBadge(widget.event.isFree),
             const SizedBox(height: 16),
 
             // Event photo (if one was attached)
