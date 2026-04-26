@@ -205,12 +205,17 @@ class _MapScreenState extends State<MapScreen> {
     _circleToEvent.clear();
 
     for (final event in events) {
+      // Green marker = free event, orange marker = paid event.
+      // Using the app's orange for paid keeps it on-brand; green signals "no cost".
+      final markerColor =
+          event.isFree ? Colors.green.shade600 : Colors.orange.shade700;
+
       final circle = await _circleManager!.create(
         CircleAnnotationOptions(
           geometry: Point(
             coordinates: Position(event.longitude, event.latitude),
           ),
-          circleColor: Colors.blue.toARGB32(),
+          circleColor: markerColor.toARGB32(),
           circleRadius: 12.0,
           isDraggable: false,
         ),
@@ -313,6 +318,7 @@ class _MapScreenState extends State<MapScreen> {
     String name = '';
     String desc = '';
     image_picker.XFile? pickedImage;
+    bool isFree = true;
 
     await showDialog(
       context: context,
@@ -334,6 +340,29 @@ class _MapScreenState extends State<MapScreen> {
                   onChanged: (val) => desc = val,
                 ),
                 const SizedBox(height: 12),
+                // Free / Paid toggle — Switch is the clearest binary input
+                // for a single boolean; label updates to reflect current state.
+                Row(
+                  children: [
+                    Text(
+                      isFree ? 'Free Event' : 'Paid Event',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: isFree ? Colors.green.shade700 : Colors.red.shade700,
+                      ),
+                    ),
+                    const Spacer(),
+                    Switch(
+                      value: isFree,
+                      onChanged: (val) => setDialogState(() => isFree = val),
+                      activeThumbColor: Colors.green,
+                      inactiveThumbColor: Colors.red.shade400,
+                      inactiveTrackColor: Colors.red.shade100,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
                 if (pickedImage != null) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
@@ -372,7 +401,7 @@ class _MapScreenState extends State<MapScreen> {
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                _saveEvent(coords, name, desc, pickedImage);
+                _saveEvent(coords, name, desc, pickedImage, isFree);
               },
               child: const Text("Add"),
             ),
@@ -385,7 +414,7 @@ class _MapScreenState extends State<MapScreen> {
   // Save event to Firestore. The stream listener will automatically
   // pick up the new event and draw it on the map.
   Future<void> _saveEvent(
-      Position coords, String name, String desc, image_picker.XFile? imageFile) async {
+      Position coords, String name, String desc, image_picker.XFile? imageFile, bool isFree) async {
     String? imageUrl;
     if (imageFile != null) {
       imageUrl = await _firestoreService.uploadEventImage(imageFile);
@@ -396,6 +425,7 @@ class _MapScreenState extends State<MapScreen> {
       latitude: coords.lat.toDouble(),
       longitude: coords.lng.toDouble(),
       imageUrl: imageUrl,
+      isFree: isFree,
     );
     await _firestoreService.addEvent(event);
   }

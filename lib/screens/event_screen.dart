@@ -246,6 +246,38 @@ class _EventCardState extends State<_EventCard> {
 
   String? get _currentUid => FirebaseAuth.instance.currentUser?.uid;
 
+  Widget _priceBadge(bool isFree) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isFree
+            ? Colors.green.shade600.withValues(alpha: 0.92)
+            : Colors.red.shade600.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isFree ? Icons.money_off : Icons.attach_money,
+            color: Colors.white,
+            size: 11,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            isFree ? 'FREE' : 'PAID',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _onHypeTapped() async {
     final uid = _currentUid;
     if (uid == null) return;
@@ -325,6 +357,8 @@ class _EventCardState extends State<_EventCard> {
                       ),
                     ),
                   ),
+                  _priceBadge(widget.event.isFree),
+                  const SizedBox(width: 4),
                   // Bookmark button — tapping here does NOT navigate to detail
                   // because IconButton handles its own tap before the parent
                   // GestureDetector can see it.
@@ -427,6 +461,10 @@ class _EventCardState extends State<_EventCard> {
                             const SizedBox(width: 8),
                           ],
                         ),
+
+                      // Free / Paid badge
+                      _priceBadge(widget.event.isFree),
+                      const SizedBox(width: 8),
 
                       // Hype button
                       GestureDetector(

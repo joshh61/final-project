@@ -44,6 +44,11 @@ class Event {
   // Optional Firebase Storage download URL for a photo attached to this event.
   final String? imageUrl;
 
+  // Whether the event is free to attend. Defaults to true.
+  // Stored as a boolean field in Firestore; old docs without this field
+  // are treated as free (the ?? true fallback in fromFirestore).
+  final bool isFree;
+
   Event({
     this.id,
     required this.name,
@@ -57,6 +62,7 @@ class Event {
     this.averageRating = 0.0,
     this.reviewCount = 0,
     this.imageUrl,
+    this.isFree = true,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Converts this Event object into a Map that Firestore can store.
@@ -77,6 +83,7 @@ class Event {
       'averageRating': averageRating,
       'reviewCount': reviewCount,
       if (imageUrl != null) 'imageUrl': imageUrl,
+      'isFree': isFree,
     };
   }
 
@@ -103,6 +110,7 @@ class Event {
       averageRating: (data['averageRating'] ?? 0).toDouble(),
       reviewCount: (data['reviewCount'] ?? 0) as int,
       imageUrl: data['imageUrl'] as String?,
+      isFree: (data['isFree'] as bool?) ?? true,
     );
   }
 }
