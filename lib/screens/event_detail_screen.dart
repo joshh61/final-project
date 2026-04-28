@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/event.dart';
+import '../models/event_category.dart';
 import '../services/firestore_service.dart';
 import 'live_navigation.dart';
 
@@ -160,6 +161,34 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   }
 
   String? get _currentUid => FirebaseAuth.instance.currentUser?.uid;
+
+  // Pill badge showing the event category with its associated color and icon.
+  Widget _categoryBadge(EventCategory category) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: category.color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: category.color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(category.icon, size: 14, color: category.color),
+          const SizedBox(width: 5),
+          Text(
+            category.label,
+            style: TextStyle(
+              color: category.color,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _priceBadge(bool isFree) {
     return Container(
@@ -340,6 +369,8 @@ Shared via Campus Vibes''';
             ),
             const SizedBox(height: 8),
             _priceBadge(widget.event.isFree),
+            const SizedBox(height: 8),
+            _categoryBadge(widget.event.category),
             const SizedBox(height: 16),
 
             // Event photo (if one was attached)

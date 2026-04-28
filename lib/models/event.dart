@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'event_category.dart';
 
 /// Represents a campus event with a location on the map.
 ///
@@ -49,6 +50,11 @@ class Event {
   // are treated as free (the ?? true fallback in fromFirestore).
   final bool isFree;
 
+  // Which type of campus event this is (Academic, Social, Sports, etc.).
+  // Old Firestore documents without this field default to EventCategory.other
+  // via the fromString fallback in EventCategory.
+  final EventCategory category;
+
   Event({
     this.id,
     required this.name,
@@ -63,6 +69,7 @@ class Event {
     this.reviewCount = 0,
     this.imageUrl,
     this.isFree = true,
+    this.category = EventCategory.other,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Converts this Event object into a Map that Firestore can store.
@@ -84,6 +91,7 @@ class Event {
       'reviewCount': reviewCount,
       if (imageUrl != null) 'imageUrl': imageUrl,
       'isFree': isFree,
+      'category': category.label,
     };
   }
 
@@ -111,6 +119,7 @@ class Event {
       reviewCount: (data['reviewCount'] ?? 0) as int,
       imageUrl: data['imageUrl'] as String?,
       isFree: (data['isFree'] as bool?) ?? true,
+      category: EventCategory.fromString(data['category'] as String?),
     );
   }
 }
