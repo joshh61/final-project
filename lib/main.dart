@@ -19,6 +19,7 @@ import 'firebase_options.dart';
 // Firestore service and Event model
 import 'services/firestore_service.dart';
 import 'models/event.dart';
+import 'models/event_category.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -91,6 +92,14 @@ class _MapScreenState extends State<MapScreen> {
   // Maps circle annotation ID → Event object for tap lookups
   final Map<String, Event> _circleToEvent = {};
 
+  // Last batch of events from Firestore — cached so the filter bar can
+  // redraw markers without waiting for the next stream emission.
+  List<Event> _cachedEvents = [];
+
+  // Which categories are currently visible on the map.
+  // Starts as all categories selected (show everything).
+  Set<EventCategory> _visibleCategories = EventCategory.values.toSet();
+
   // IDs for the route source/layer (must be unique in the style)
   static const _routeSourceId = "route-source";
   static const _routeLayerId = "route-layer";
@@ -131,21 +140,34 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
-      body: MapWidget(
-        cameraOptions: CameraOptions(
-          // Initial camera position over campus
-          center: Point(coordinates: Position(utrgvCenterLng, utrgvCenterLat)),
-          zoom: 15.5,
-        ),
-        // Called once the MapboxMap object is ready
-        onMapCreated: _onMapCreated,
-        // Called when the style is fully loaded; you add sources/layers here
-        onStyleLoadedListener: _onStyleLoaded,
-        // Tap on the map to add a new event marker
-        onTapListener: (ctx) {
-          final coords = ctx.point.coordinates;
-          _showAddDialog(coords);
-        },
+      body: Stack(
+        children: [
+          MapWidget(
+            cameraOptions: CameraOptions(
+              // Initial camera position over campus
+              center: Point(coordinates: Position(utrgvCenterLng, utrgvCenterLat)),
+              zoom: 15.5,
+            ),
+            // Called once the MapboxMap object is ready
+            onMapCreated: _onMapCreated,
+            // Called when the style is fully loaded; you add sources/layers here
+            onStyleLoadedListener: _onStyleLoaded,
+            // Tap on the map to add a new event marker
+            onTapListener: (ctx) {
+              final coords = ctx.point.coordinates;
+              _showAddDialog(coords);
+            },
+          ),
+          // Category filter bar overlaid at the top of the map.
+          // Positioned fills the full width; taps are consumed by the chips
+          // so they don't fall through to the map's onTapListener.
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _buildMapFilterBar(),
+          ),
+        ],
       ),
       // Sample route FAB for demo purposes
       floatingActionButton: FloatingActionButton(
@@ -197,31 +219,83 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  // Clears all circle markers and redraws them from Firestore data.
+  // Clears all circle markers and redraws only the categories that are
+  // currently selected in the filter bar.
   Future<void> _redrawMarkers(List<Event> events) async {
+    // Always cache the full list so the filter bar can redraw without
+    // waiting for the next Firestore stream emission.
+    _cachedEvents = events;
     if (_circleManager == null) return;
 
     await _circleManager!.deleteAll();
     _circleToEvent.clear();
 
-    for (final event in events) {
-      // Green marker = free event, orange marker = paid event.
-      // Using the app's orange for paid keeps it on-brand; green signals "no cost".
-      final markerColor =
-          event.isFree ? Colors.green.shade600 : Colors.orange.shade700;
+    // Only draw markers whose category is toggled on.
+    final visible = events.where((e) => _visibleCategories.contains(e.category));
 
+    for (final event in visible) {
+      // Color the circle by category — each category has its own distinct hue
+      // defined in EventCategory.color.
       final circle = await _circleManager!.create(
         CircleAnnotationOptions(
           geometry: Point(
             coordinates: Position(event.longitude, event.latitude),
           ),
-          circleColor: markerColor.toARGB32(),
+          circleColor: event.category.color.toARGB32(),
           circleRadius: 12.0,
           isDraggable: false,
         ),
       );
       _circleToEvent[circle.id] = event;
     }
+  }
+
+  // Called when a filter chip is tapped on the map.
+  // Toggles the category's visibility and redraws the markers immediately.
+  void _toggleCategory(EventCategory cat) {
+    setState(() {
+      if (_visibleCategories.contains(cat)) {
+        _visibleCategories.remove(cat);
+      } else {
+        _visibleCategories.add(cat);
+      }
+    });
+    // Redraw with the cached list — no need to wait for a new Firestore event.
+    _redrawMarkers(_cachedEvents);
+  }
+
+  // Builds the horizontal scrollable chip bar that sits at the top of the map.
+  Widget _buildMapFilterBar() {
+    return Container(
+      color: Colors.white.withValues(alpha: 0.93),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: EventCategory.values.map((cat) {
+            final selected = _visibleCategories.contains(cat);
+            return Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: FilterChip(
+                avatar: Icon(cat.icon,
+                    size: 14, color: selected ? Colors.white : cat.color),
+                label: Text(cat.label),
+                selected: selected,
+                onSelected: (_) => _toggleCategory(cat),
+                selectedColor: cat.color,
+                backgroundColor: Colors.grey.shade100,
+                labelStyle: TextStyle(
+                  color: selected ? Colors.white : Colors.black87,
+                  fontSize: 12,
+                ),
+                showCheckmark: false,
+                side: BorderSide(color: cat.color, width: 1.5),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
   }
 
   // Called when the style is loaded; set up a GeoJSON source + line layer for routes.
@@ -319,6 +393,7 @@ class _MapScreenState extends State<MapScreen> {
     String desc = '';
     image_picker.XFile? pickedImage;
     bool isFree = true;
+    EventCategory category = EventCategory.other;
 
     await showDialog(
       context: context,
@@ -338,6 +413,42 @@ class _MapScreenState extends State<MapScreen> {
                 TextField(
                   decoration: const InputDecoration(labelText: "Description"),
                   onChanged: (val) => desc = val,
+                ),
+                const SizedBox(height: 12),
+                // Category picker — InputDecorator gives us the same outlined
+                // border as the TextFields above while letting DropdownButton
+                // stay controlled (value: drives the displayed selection after
+                // each setDialogState call, which DropdownButtonFormField's
+                // deprecated value: also did but with a lint warning).
+                InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    border: OutlineInputBorder(),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<EventCategory>(
+                      value: category,
+                      isDense: true,
+                      isExpanded: true,
+                      items: EventCategory.values.map((cat) {
+                        return DropdownMenuItem(
+                          value: cat,
+                          child: Row(
+                            children: [
+                              Icon(cat.icon, size: 16, color: cat.color),
+                              const SizedBox(width: 8),
+                              Text(cat.label,
+                                  style: const TextStyle(fontSize: 14)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) => setDialogState(
+                          () => category = val ?? EventCategory.other),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 // Free / Paid toggle — Switch is the clearest binary input
@@ -401,7 +512,7 @@ class _MapScreenState extends State<MapScreen> {
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                _saveEvent(coords, name, desc, pickedImage, isFree);
+                _saveEvent(coords, name, desc, pickedImage, isFree, category);
               },
               child: const Text("Add"),
             ),
@@ -414,7 +525,8 @@ class _MapScreenState extends State<MapScreen> {
   // Save event to Firestore. The stream listener will automatically
   // pick up the new event and draw it on the map.
   Future<void> _saveEvent(
-      Position coords, String name, String desc, image_picker.XFile? imageFile, bool isFree) async {
+      Position coords, String name, String desc,
+      image_picker.XFile? imageFile, bool isFree, EventCategory category) async {
     String? imageUrl;
     if (imageFile != null) {
       imageUrl = await _firestoreService.uploadEventImage(imageFile);
@@ -426,6 +538,7 @@ class _MapScreenState extends State<MapScreen> {
       longitude: coords.lng.toDouble(),
       imageUrl: imageUrl,
       isFree: isFree,
+      category: category,
     );
     await _firestoreService.addEvent(event);
   }

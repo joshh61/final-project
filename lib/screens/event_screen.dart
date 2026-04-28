@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/event.dart';
+import '../models/event_category.dart';
 import '../services/firestore_service.dart';
 import 'event_detail_screen.dart';
 
@@ -28,6 +29,9 @@ class _EventsScreenState extends State<EventsScreen> {
   // A Set gives O(1) lookup — checking if an event is saved is just .contains()
   Set<String> _savedEventIds = {};
   bool _loading = true;
+
+  // null = show all categories; non-null = show only that category.
+  EventCategory? _selectedCategory;
 
   // We keep these subscriptions so we can cancel them in dispose().
   // Forgetting to cancel causes memory leaks and "setState on disposed widget" errors.
@@ -107,13 +111,18 @@ class _EventsScreenState extends State<EventsScreen> {
       );
     }
 
-    // Split events into sections.
+    // Apply category filter first — null means show all categories.
+    final filtered = _selectedCategory == null
+        ? _allEvents
+        : _allEvents.where((e) => e.category == _selectedCategory).toList();
+
+    // Split filtered events into sections.
     final savedEvents =
-        _allEvents.where((e) => _savedEventIds.contains(e.id)).toList();
-    final popular = _allEvents
+        filtered.where((e) => _savedEventIds.contains(e.id)).toList();
+    final popular = filtered
         .where((e) => e.hypeCount >= _popularThreshold)
         .toList();
-    final regular = _allEvents
+    final regular = filtered
         .where((e) => e.hypeCount < _popularThreshold)
         .toList();
 
@@ -162,9 +171,17 @@ class _EventsScreenState extends State<EventsScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: _buildAppBar(),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: items,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildCategoryFilter(),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: items,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -177,6 +194,64 @@ class _EventsScreenState extends State<EventsScreen> {
       ),
       backgroundColor: Colors.orange,
       elevation: 0,
+    );
+  }
+
+  // Horizontal scrollable row of chips — one "All" chip plus one per category.
+  // Tapping a category chip filters the list to that category only.
+  // Tapping the same chip again (or "All") resets to show everything.
+  Widget _buildCategoryFilter() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            // "All" chip — selected when no category filter is active.
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: const Text('All'),
+                selected: _selectedCategory == null,
+                onSelected: (_) => setState(() => _selectedCategory = null),
+                selectedColor: Colors.orange,
+                labelStyle: TextStyle(
+                  color: _selectedCategory == null
+                      ? Colors.white
+                      : Colors.black87,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+                showCheckmark: false,
+              ),
+            ),
+            // One chip per EventCategory value.
+            ...EventCategory.values.map((cat) {
+              final selected = _selectedCategory == cat;
+              return Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: ChoiceChip(
+                  avatar: Icon(cat.icon,
+                      size: 14, color: selected ? Colors.white : cat.color),
+                  label: Text(cat.label),
+                  selected: selected,
+                  // Tapping the already-selected chip deselects it (back to All).
+                  onSelected: (_) => setState(
+                      () => _selectedCategory = selected ? null : cat),
+                  selectedColor: cat.color,
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.white : Colors.black87,
+                    fontSize: 12,
+                  ),
+                  showCheckmark: false,
+                  side: BorderSide(color: cat.color, width: 1.5),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -411,7 +486,38 @@ class _EventCardState extends State<_EventCard> {
                     style: const TextStyle(
                         fontSize: 14, color: Colors.black87, height: 1.5),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
+                  // Category pill badge — mirrors the style on EventDetailScreen.
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: widget.event.category.color
+                          .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: widget.event.category.color
+                              .withValues(alpha: 0.45)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(widget.event.category.icon,
+                            size: 11,
+                            color: widget.event.category.color),
+                        const SizedBox(width: 4),
+                        Text(
+                          widget.event.category.label,
+                          style: TextStyle(
+                            color: widget.event.category.color,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       const Icon(Icons.location_on,
