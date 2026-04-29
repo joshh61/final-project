@@ -92,13 +92,12 @@ class _MapScreenState extends State<MapScreen> {
   // Maps circle annotation ID → Event object for tap lookups
   final Map<String, Event> _circleToEvent = {};
 
-  // Last batch of events from Firestore — cached so the filter bar can
-  // redraw markers without waiting for the next stream emission.
+  // Last batch of events from Firestore — cached so the filter dropdown can
+  // redraw markers without waiting for the next Firestore stream emission.
   List<Event> _cachedEvents = [];
 
-  // Which categories are currently visible on the map.
-  // Starts as all categories selected (show everything).
-  Set<EventCategory> _visibleCategories = EventCategory.values.toSet();
+  // null = show all categories. Non-null = show only that category.
+  EventCategory? _selectedMapCategory;
 
   // IDs for the route source/layer (must be unique in the style)
   static const _routeSourceId = "route-source";
@@ -195,25 +194,9 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
 
-    // Create a CircleAnnotationManager to draw circle markers [[Circle annotations](https://docs.mapbox.com/flutter/maps/examples/circle_annotations/)]
-    _circleManager = await mapboxMap.annotations
-        .createCircleAnnotationManager();
-
-    // When a circle is tapped, navigate to the EventDetailScreen
-    _circleManager?.tapEvents(
-      onTap: (circle) {
-        final event = _circleToEvent[circle.id];
-        if (event != null) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
-          );
-        }
-      },
-    );
-
     // Listen to Firestore for real-time event updates.
-    // Every time the 'events' collection changes, redraw all markers.
+    // _redrawMarkers caches events even if _circleManager isn't ready yet —
+    // _onStyleLoaded will pick them up and draw them once the manager exists.
     _eventsSubscription = _firestoreService.getEventsStream().listen((events) {
       _redrawMarkers(events);
     });
@@ -230,8 +213,10 @@ class _MapScreenState extends State<MapScreen> {
     await _circleManager!.deleteAll();
     _circleToEvent.clear();
 
-    // Only draw markers whose category is toggled on.
-    final visible = events.where((e) => _visibleCategories.contains(e.category));
+    // null = show all. Non-null = show only that category.
+    final visible = _selectedMapCategory == null
+        ? events
+        : events.where((e) => e.category == _selectedMapCategory);
 
     for (final event in visible) {
       // Color the circle by category — each category has its own distinct hue
@@ -250,49 +235,76 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Called when a filter chip is tapped on the map.
-  // Toggles the category's visibility and redraws the markers immediately.
-  void _toggleCategory(EventCategory cat) {
-    setState(() {
-      if (_visibleCategories.contains(cat)) {
-        _visibleCategories.remove(cat);
-      } else {
-        _visibleCategories.add(cat);
-      }
-    });
-    // Redraw with the cached list — no need to wait for a new Firestore event.
+  // Called when the dropdown selection changes.
+  // Updates the filter and immediately redraws markers from the cache.
+  void _onCategorySelected(EventCategory? cat) {
+    setState(() => _selectedMapCategory = cat);
     _redrawMarkers(_cachedEvents);
   }
 
-  // Builds the horizontal scrollable chip bar that sits at the top of the map.
+  // Builds the category dropdown that sits at the top of the map.
+  // Wrapped in Material so DropdownButton has a proper surface and so
+  // Flutter's gesture system takes priority over the Mapbox MapWidget below.
   Widget _buildMapFilterBar() {
-    return Container(
-      color: Colors.white.withValues(alpha: 0.93),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: EventCategory.values.map((cat) {
-            final selected = _visibleCategories.contains(cat);
-            return Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: FilterChip(
-                avatar: Icon(cat.icon,
-                    size: 14, color: selected ? Colors.white : cat.color),
-                label: Text(cat.label),
-                selected: selected,
-                onSelected: (_) => _toggleCategory(cat),
-                selectedColor: cat.color,
-                backgroundColor: Colors.grey.shade100,
-                labelStyle: TextStyle(
-                  color: selected ? Colors.white : Colors.black87,
-                  fontSize: 12,
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        margin: const EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<EventCategory?>(
+            value: _selectedMapCategory,
+            isExpanded: true,
+            // Shown when nothing is selected (all categories visible).
+            hint: const Row(
+              children: [
+                Icon(Icons.filter_list, color: Colors.orange, size: 18),
+                SizedBox(width: 8),
+                Text('All Categories',
+                    style: TextStyle(fontSize: 14, color: Colors.black87)),
+              ],
+            ),
+            items: [
+              // "All" option resets back to showing every category.
+              const DropdownMenuItem<EventCategory?>(
+                value: null,
+                child: Row(
+                  children: [
+                    Icon(Icons.event, color: Colors.orange, size: 16),
+                    SizedBox(width: 8),
+                    Text('All Categories',
+                        style: TextStyle(fontSize: 14)),
+                  ],
                 ),
-                showCheckmark: false,
-                side: BorderSide(color: cat.color, width: 1.5),
               ),
-            );
-          }).toList(),
+              // One item per EventCategory enum value.
+              ...EventCategory.values.map((cat) {
+                return DropdownMenuItem<EventCategory?>(
+                  value: cat,
+                  child: Row(
+                    children: [
+                      Icon(cat.icon, color: cat.color, size: 16),
+                      const SizedBox(width: 8),
+                      Text(cat.label,
+                          style: const TextStyle(fontSize: 14)),
+                    ],
+                  ),
+                );
+              }),
+            ],
+            onChanged: _onCategorySelected,
+          ),
         ),
       ),
     );
@@ -303,16 +315,14 @@ class _MapScreenState extends State<MapScreen> {
     if (_mapboxMap == null) return;
 
     // 1) Add an (initially empty) GeoJSON source for the route.
-    // This matches the pattern in the official GeoJSON line example. [[GeoJSON line example](https://docs.mapbox.com/flutter/maps/examples/geojson_line/)]
     await _mapboxMap!.style.addSource(
       GeoJsonSource(
         id: _routeSourceId,
-        // Start with an empty FeatureCollection; we'll replace "data" later.
         data: '{"type":"FeatureCollection","features":[]}',
       ),
     );
 
-    // 2) Add a LineLayer that draws whatever geometry is in the route source. [[Work with layers](https://docs.mapbox.com/flutter/maps/guides/styles/work-with-layers/#add-a-layer-at-runtime)]
+    // 2) Add a LineLayer that draws whatever geometry is in the route source.
     await _mapboxMap!.style.addLayer(
       LineLayer(
         id: _routeLayerId,
@@ -321,6 +331,32 @@ class _MapScreenState extends State<MapScreen> {
         lineWidth: 4.0,
       ),
     );
+
+    // 3) Create (or recreate) the circle annotation manager here instead of
+    // in _onMapCreated. On iOS, Mapbox wipes annotation managers whenever the
+    // style reloads — which happens on pan, zoom, and tab switches. Recreating
+    // here guarantees the manager is always fresh after any style load.
+    _circleManager = await _mapboxMap!.annotations
+        .createCircleAnnotationManager();
+
+    _circleManager?.tapEvents(
+      onTap: (circle) {
+        final event = _circleToEvent[circle.id];
+        if (event != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
+          );
+        }
+      },
+    );
+
+    // 4) If Firestore already fired before the style finished loading, the
+    // events are sitting in _cachedEvents. Redraw them now with whatever
+    // filter the user has selected so nothing is lost.
+    if (_cachedEvents.isNotEmpty) {
+      await _redrawMarkers(_cachedEvents);
+    }
   }
 
   // Heart of the walking path logic:
