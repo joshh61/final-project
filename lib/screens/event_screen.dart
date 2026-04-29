@@ -432,8 +432,6 @@ class _EventCardState extends State<_EventCard> {
                       ),
                     ),
                   ),
-                  _priceBadge(widget.event.isFree),
-                  const SizedBox(width: 4),
                   // Bookmark button — tapping here does NOT navigate to detail
                   // because IconButton handles its own tap before the parent
                   // GestureDetector can see it.
