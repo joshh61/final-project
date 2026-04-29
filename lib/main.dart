@@ -434,34 +434,42 @@ class _MapScreenState extends State<MapScreen> {
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text("New Event"),
-          content: SingleChildScrollView(
+        builder: (context, setDialogState) => Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const Text(
+                  "New Event",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
                 TextField(
-                  decoration: const InputDecoration(labelText: "Event Name"),
+                  decoration: const InputDecoration(
+                    labelText: "Event Name",
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
                   onChanged: (val) => name = val,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 TextField(
-                  decoration: const InputDecoration(labelText: "Description"),
+                  decoration: const InputDecoration(
+                    labelText: "Description",
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
                   onChanged: (val) => desc = val,
                 ),
-                const SizedBox(height: 12),
-                // Category picker — InputDecorator gives us the same outlined
-                // border as the TextFields above while letting DropdownButton
-                // stay controlled (value: drives the displayed selection after
-                // each setDialogState call, which DropdownButtonFormField's
-                // deprecated value: also did but with a lint warning).
+                const SizedBox(height: 10),
                 InputDecorator(
                   decoration: const InputDecoration(
                     labelText: 'Category',
                     border: OutlineInputBorder(),
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<EventCategory>(
@@ -475,8 +483,7 @@ class _MapScreenState extends State<MapScreen> {
                             children: [
                               Icon(cat.icon, size: 16, color: cat.color),
                               const SizedBox(width: 8),
-                              Text(cat.label,
-                                  style: const TextStyle(fontSize: 14)),
+                              Text(cat.label, style: const TextStyle(fontSize: 14)),
                             ],
                           ),
                         );
@@ -486,9 +493,7 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                // Free / Paid toggle — Switch is the clearest binary input
-                // for a single boolean; label updates to reflect current state.
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Text(
@@ -509,7 +514,7 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 if (pickedImage != null) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
@@ -530,29 +535,39 @@ class _MapScreenState extends State<MapScreen> {
                     icon: const Icon(Icons.add_photo_alternate),
                     label: const Text("Add Photo"),
                     onPressed: () async {
-                      final image = await image_picker.ImagePicker()
-                          .pickImage(source: image_picker.ImageSource.gallery, imageQuality: 80);
+                      final image = await image_picker.ImagePicker().pickImage(
+                          source: image_picker.ImageSource.gallery,
+                          imageQuality: 80);
                       if (image != null) {
                         setDialogState(() => pickedImage = image);
                       }
                     },
                   ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("Cancel"),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _saveEvent(coords, name, desc, pickedImage, isFree, category);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text("Add"),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _saveEvent(coords, name, desc, pickedImage, isFree, category);
-              },
-              child: const Text("Add"),
-            ),
-          ],
         ),
       ),
     );
