@@ -2,10 +2,13 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 import '../models/event.dart';
 import '../models/event_category.dart';
 import '../services/firestore_service.dart';
 import 'event_detail_screen.dart';
+
+enum _DateFilter { today, thisWeek, thisMonth, custom }
 
 // Events with at least this many hypes appear in the "Popular" section.
 const int _popularThreshold = 1;
@@ -32,6 +35,10 @@ class _EventsScreenState extends State<EventsScreen> {
 
   // null = show all categories; non-null = show only that category.
   EventCategory? _selectedCategory;
+
+  // null = show all dates; non-null = apply a date filter.
+  _DateFilter? _selectedDateFilter;
+  DateTimeRange? _customDateRange;
 
   // We keep these subscriptions so we can cancel them in dispose().
   // Forgetting to cancel causes memory leaks and "setState on disposed widget" errors.
@@ -82,6 +89,142 @@ class _EventsScreenState extends State<EventsScreen> {
     }
   }
 
+  // Uses eventDate if set, otherwise falls back to createdAt.
+  // This way old events still participate in date filtering.
+  DateTime _getFilterDate(Event e) => e.eventDate ?? e.createdAt;
+
+  bool _matchesDateFilter(Event e) {
+    if (_selectedDateFilter == null) return true;
+    final date = _getFilterDate(e);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    switch (_selectedDateFilter!) {
+      case _DateFilter.today:
+        return DateTime(date.year, date.month, date.day) == today;
+      case _DateFilter.thisWeek:
+        final weekEnd = today.add(const Duration(days: 7));
+        final d = DateTime(date.year, date.month, date.day);
+        return !d.isBefore(today) && d.isBefore(weekEnd);
+      case _DateFilter.thisMonth:
+        return date.year == now.year && date.month == now.month;
+      case _DateFilter.custom:
+        if (_customDateRange == null) return true;
+        final d = DateTime(date.year, date.month, date.day);
+        return !d.isBefore(_customDateRange!.start) &&
+            !d.isAfter(_customDateRange!.end);
+    }
+  }
+
+  Future<void> _pickCustomRange(BuildContext context) async {
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+      initialDateRange: _customDateRange,
+      builder: (context, child) => Theme(
+        data: ThemeData.light().copyWith(
+          colorScheme: const ColorScheme.light(primary: Colors.orange),
+        ),
+        child: child!,
+      ),
+    );
+    if (range != null) {
+      setState(() {
+        _selectedDateFilter = _DateFilter.custom;
+        _customDateRange = range;
+      });
+    }
+  }
+
+  Widget _dateChip(
+      BuildContext context, String label, _DateFilter filter, IconData icon) {
+    final selected = _selectedDateFilter == filter;
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: ChoiceChip(
+        avatar: Icon(icon, size: 14, color: selected ? Colors.white : Colors.grey),
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) => setState(() {
+          _selectedDateFilter = selected ? null : filter;
+          _customDateRange = null;
+        }),
+        selectedColor: Colors.orange,
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : Colors.black87,
+          fontSize: 12,
+        ),
+        showCheckmark: false,
+      ),
+    );
+  }
+
+  Widget _buildDateFilter(BuildContext context) {
+    final customLabel =
+        _selectedDateFilter == _DateFilter.custom && _customDateRange != null
+            ? '${DateFormat('MMM d').format(_customDateRange!.start)} – '
+                '${DateFormat('MMM d').format(_customDateRange!.end)}'
+            : 'Custom Range';
+
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: const Text('All Dates'),
+                selected: _selectedDateFilter == null,
+                onSelected: (_) => setState(() {
+                  _selectedDateFilter = null;
+                  _customDateRange = null;
+                }),
+                selectedColor: Colors.orange,
+                labelStyle: TextStyle(
+                  color: _selectedDateFilter == null
+                      ? Colors.white
+                      : Colors.black87,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+                showCheckmark: false,
+              ),
+            ),
+            _dateChip(context, 'Today', _DateFilter.today, Icons.today),
+            _dateChip(context, 'This Week', _DateFilter.thisWeek,
+                Icons.view_week),
+            _dateChip(context, 'This Month', _DateFilter.thisMonth,
+                Icons.calendar_month),
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                avatar: Icon(Icons.date_range,
+                    size: 14,
+                    color: _selectedDateFilter == _DateFilter.custom
+                        ? Colors.white
+                        : Colors.grey),
+                label: Text(customLabel),
+                selected: _selectedDateFilter == _DateFilter.custom,
+                onSelected: (_) => _pickCustomRange(context),
+                selectedColor: Colors.orange,
+                labelStyle: TextStyle(
+                  color: _selectedDateFilter == _DateFilter.custom
+                      ? Colors.white
+                      : Colors.black87,
+                  fontSize: 12,
+                ),
+                showCheckmark: false,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -111,10 +254,12 @@ class _EventsScreenState extends State<EventsScreen> {
       );
     }
 
-    // Apply category filter first — null means show all categories.
-    final filtered = _selectedCategory == null
-        ? _allEvents
-        : _allEvents.where((e) => e.category == _selectedCategory).toList();
+    // Apply category and date filters — null on either means show all.
+    final filtered = _allEvents
+        .where((e) =>
+            (_selectedCategory == null || e.category == _selectedCategory) &&
+            _matchesDateFilter(e))
+        .toList();
 
     // Split filtered events into sections.
     final savedEvents =
@@ -175,6 +320,7 @@ class _EventsScreenState extends State<EventsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildCategoryFilter(),
+          _buildDateFilter(context),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(16),

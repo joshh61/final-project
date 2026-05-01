@@ -209,6 +209,8 @@ class FirestoreService {
     String uid,
     int rating, {
     String comment = '',
+    String? displayName,
+    String? email,
   }) async {
     final eventRef = _eventsCollection.doc(eventId);
     final reviewRef = eventRef.collection('reviews').doc(uid);
@@ -241,6 +243,8 @@ class FirestoreService {
         'rating': rating,
         'comment': comment.trim(),
         'createdAt': FieldValue.serverTimestamp(),
+        'displayName': displayName,
+        'email': email,
       });
 
       transaction.update(eventRef, {

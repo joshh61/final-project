@@ -22,13 +22,15 @@ class AuthService {
       return null; // Success
     } on FirebaseAuthException catch (e) {
       if (e.code == 'weak-password') {
-        return 'Password is too weak';
+        return 'Password is too weak, use at least 6 characters';
       } else if (e.code == 'email-already-in-use') {
-        return 'Email already exists';
+        return 'An account with that email already exists';
+      } else if (e.code == 'invalid-email') {
+        return 'Please enter a valid email address';
       }
-      return e.message;
+      return 'Something went wrong. Please try again';
     } catch (e) {
-      return 'An error occurred';
+      return 'Something went wrong. Please try again';
     }
   }
 
@@ -42,13 +44,21 @@ class AuthService {
       return null; // Success
     } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') {
-        return 'No user found with this email';
+        return 'No account found with that email';
       } else if (e.code == 'wrong-password') {
-        return 'Wrong password';
+        return 'Incorrect password, please try again';
+      } else if (e.code == 'invalid-email') {
+        return 'Please enter a valid email address';
+      } else if (e.code == 'invalid-credential') {
+        return 'Email or password is incorrect';
+      } else if (e.code == 'too-many-requests') {
+        return 'Too many attempts. Please try again later';
+      } else if (e.code == 'user-disabled') {
+        return 'This account has been disabled';
       }
-      return e.message;
+      return 'Something went wrong. Please try again';
     } catch (e) {
-      return 'An error occurred';
+      return 'Something went wrong. Please try again';
     }
   }
 

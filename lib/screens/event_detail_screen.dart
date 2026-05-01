@@ -88,7 +88,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     if (uid == null || widget.event.id == null) return;
 
     final hasSaved =
-        await _firestoreService.checkEventSaved(widget.event.id!, uid);
+        await _firestoreService.checkEventSaved(uid, widget.event.id!);
     if (mounted) setState(() => _hasSaved = hasSaved);
   }
 
@@ -120,11 +120,14 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     setState(() => _submittingReview = true);
 
     try {
+      final user = FirebaseAuth.instance.currentUser;
       await _firestoreService.submitReview(
         widget.event.id!,
         uid,
         _myRating,
         comment: _commentController.text,
+        displayName: user?.displayName,
+        email: user?.email,
       );
 
       if (!mounted) return;
@@ -242,10 +245,25 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   // ── Share ────────────────────────────────────────────────────────────────────
 
+  // Returns the date/time string shown on the detail screen.
+  // Shows eventDate + eventEndDate if set, otherwise falls back to createdAt.
+  String _buildDateTimeLabel() {
+    final start = widget.event.eventDate;
+    final end = widget.event.eventEndDate;
+    if (start == null) {
+      return DateFormat('MMM d, yyyy – h:mm a').format(widget.event.createdAt);
+    }
+    final datePart = DateFormat('MMM d, yyyy').format(start);
+    final startPart = DateFormat('h:mm a').format(start);
+    if (end == null) return '$datePart · $startPart';
+    final endPart = DateFormat('h:mm a').format(end);
+    return '$datePart · $startPart – $endPart';
+  }
+
   // Builds a plain-text summary of the event and opens the native iOS share
   // sheet. The user can then send it via Messages, WhatsApp, email, etc.
   void _onShareTapped() {
-    final date = DateFormat('MMM d, yyyy – h:mm a').format(widget.event.createdAt);
+    final date = _buildDateTimeLabel();
 
     // Build the share text — keep it readable when pasted into any app.
     final text = '''
@@ -328,6 +346,34 @@ Shared via Campus Vibes''';
     }
   }
 
+  // ── Delete ───────────────────────────────────────────────────────────────────
+
+  Future<void> _onDeleteTapped() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Event'),
+        content: const Text('Are you sure you want to delete this event? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await _firestoreService.deleteEvent(widget.event.id!);
+    if (mounted) Navigator.of(context).pop();
+  }
+
   // ── Build ────────────────────────────────────────────────────────────────────
 
   @override
@@ -350,6 +396,14 @@ Shared via Campus Vibes''';
             tooltip: 'Share event',
             onPressed: _onShareTapped,
           ),
+          if (_currentUid != null &&
+              (widget.event.createdBy == null ||
+               widget.event.createdBy == _currentUid))
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: 'Delete event',
+              onPressed: _onDeleteTapped,
+            ),
         ],
       ),
       // SingleChildScrollView prevents overflow when the attendee list expands.
@@ -423,16 +477,17 @@ Shared via Campus Vibes''';
             ),
             const SizedBox(height: 12),
 
-            // Created date row
+            // Event date/time row
             Row(
               children: [
                 const Icon(Icons.calendar_today,
                     color: Colors.orange, size: 20),
                 const SizedBox(width: 8),
-                Text(
-                  DateFormat('MMM d, yyyy – h:mm a')
-                      .format(widget.event.createdAt),
-                  style: const TextStyle(fontSize: 14, color: Colors.grey),
+                Expanded(
+                  child: Text(
+                    _buildDateTimeLabel(),
+                    style: const TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
                 ),
               ],
             ),
@@ -478,11 +533,7 @@ Shared via Campus Vibes''';
             const SizedBox(height: 16),
 
             // ── Rating section ─────────────────────────────────────────────
-            // Gate: only show rating UI after the event date has passed.
-            // Uses createdAt as the event date — swap for a dedicated
-            // eventDate field if one is added to the Event model later.
-            if (widget.event.id != null &&
-                widget.event.createdAt.isBefore(DateTime.now())) ...[
+            if (widget.event.id != null) ...[
               const Divider(),
               const SizedBox(height: 8),
 
@@ -882,6 +933,12 @@ class _ReviewList extends StatelessWidget {
                   final rating = (data['rating'] as int?) ?? 0;
                   final comment =
                       (data['comment'] as String?)?.trim() ?? '';
+                  final displayName = (data['displayName'] as String?)
+                          ?.trim()
+                          .isNotEmpty ==
+                      true
+                      ? data['displayName'] as String
+                      : (data['email'] as String?) ?? 'Anonymous';
 
                   return Padding(
                     padding: const EdgeInsets.symmetric(
@@ -889,16 +946,39 @@ class _ReviewList extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Star display
                         Row(
-                          children: List.generate(
-                            5,
-                            (i) => Icon(
-                              i < rating ? Icons.star : Icons.star_border,
-                              color: Colors.amber,
-                              size: 16,
+                          children: [
+                            CircleAvatar(
+                              radius: 12,
+                              backgroundColor: Colors.orange.shade100,
+                              child: Text(
+                                displayName[0].toUpperCase(),
+                                style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orange),
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 8),
+                            Text(displayName,
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600)),
+                            const Spacer(),
+                            // Star display
+                            Row(
+                              children: List.generate(
+                                5,
+                                (i) => Icon(
+                                  i < rating
+                                      ? Icons.star
+                                      : Icons.star_border,
+                                  color: Colors.amber,
+                                  size: 14,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         if (comment.isNotEmpty) ...[
                           const SizedBox(height: 4),

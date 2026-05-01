@@ -3,23 +3,20 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart' as image_picker;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'screens/home_screen.dart';
-
-// For JSON encoding/decoding of the Directions API response
-import 'dart:convert';
-// For making HTTPS requests to the Mapbox Directions API
-import 'package:http/http.dart' as http;
-import 'package:firebase_auth/firebase_auth.dart';
+import 'screens/splash_screen.dart';
 import 'services/auth_service.dart';
-import 'screens/login_screen.dart';
 import 'screens/event_detail_screen.dart';
 // Firebase initialization
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 // Firestore service and Event model
+import 'package:intl/intl.dart';
 import 'services/firestore_service.dart';
 import 'models/event.dart';
 import 'models/event_category.dart';
+
+enum _DateFilter { today, thisWeek, thisMonth, custom }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,23 +44,7 @@ class MyApp extends StatelessWidget {
       title: 'Campus Vibes',
       theme: ThemeData(primarySwatch: Colors.blue),
       // Check auth state and show appropriate screen
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          // Still loading
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Scaffold(body: Center(child: CircularProgressIndicator()));
-          }
-
-          // User is logged in - show map
-          if (snapshot.hasData) {
-            return HomeScreen();
-          }
-
-          // User is NOT logged in - show login screen
-          return LoginScreen();
-        },
-      ),
+      home: const SplashScreen(),
     );
   }
 }
@@ -99,9 +80,9 @@ class _MapScreenState extends State<MapScreen> {
   // null = show all categories. Non-null = show only that category.
   EventCategory? _selectedMapCategory;
 
-  // IDs for the route source/layer (must be unique in the style)
-  static const _routeSourceId = "route-source";
-  static const _routeLayerId = "route-layer";
+  // null = show all dates. Non-null = apply a date filter.
+  _DateFilter? _selectedDateFilter;
+  DateTimeRange? _customDateRange;
 
   // Map center (adjusted for better campus view)
   static const double utrgvCenterLat = 26.3050;
@@ -135,6 +116,12 @@ class _MapScreenState extends State<MapScreen> {
             icon: Icon(Icons.logout),
             onPressed: () async {
               await AuthService().signOut();
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const SplashScreen()),
+                  (_) => false,
+                );
+              }
             },
           ),
         ],
@@ -164,15 +151,9 @@ class _MapScreenState extends State<MapScreen> {
             top: 0,
             left: 0,
             right: 0,
-            child: _buildMapFilterBar(),
+            child: _buildMapFilterBar(context),
           ),
         ],
-      ),
-      // Sample route FAB for demo purposes
-      floatingActionButton: FloatingActionButton(
-        heroTag: "route",
-        onPressed: _showSampleRoute,
-        child: const Icon(Icons.alt_route),
       ),
     );
   }
@@ -202,6 +183,30 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  DateTime _getFilterDate(Event e) => e.eventDate ?? e.createdAt;
+
+  bool _matchesDateFilter(Event e) {
+    if (_selectedDateFilter == null) return true;
+    final date = _getFilterDate(e);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    switch (_selectedDateFilter!) {
+      case _DateFilter.today:
+        return DateTime(date.year, date.month, date.day) == today;
+      case _DateFilter.thisWeek:
+        final weekEnd = today.add(const Duration(days: 7));
+        final d = DateTime(date.year, date.month, date.day);
+        return !d.isBefore(today) && d.isBefore(weekEnd);
+      case _DateFilter.thisMonth:
+        return date.year == now.year && date.month == now.month;
+      case _DateFilter.custom:
+        if (_customDateRange == null) return true;
+        final d = DateTime(date.year, date.month, date.day);
+        return !d.isBefore(_customDateRange!.start) &&
+            !d.isAfter(_customDateRange!.end);
+    }
+  }
+
   // Clears all circle markers and redraws only the categories that are
   // currently selected in the filter bar.
   Future<void> _redrawMarkers(List<Event> events) async {
@@ -213,10 +218,10 @@ class _MapScreenState extends State<MapScreen> {
     await _circleManager!.deleteAll();
     _circleToEvent.clear();
 
-    // null = show all. Non-null = show only that category.
-    final visible = _selectedMapCategory == null
-        ? events
-        : events.where((e) => e.category == _selectedMapCategory);
+    // Apply both category and date filters.
+    final visible = events.where((e) =>
+        (_selectedMapCategory == null || e.category == _selectedMapCategory) &&
+        _matchesDateFilter(e));
 
     for (final event in visible) {
       // Color the circle by category — each category has its own distinct hue
@@ -242,15 +247,21 @@ class _MapScreenState extends State<MapScreen> {
     _redrawMarkers(_cachedEvents);
   }
 
-  // Builds the category dropdown that sits at the top of the map.
-  // Wrapped in Material so DropdownButton has a proper surface and so
+  // Builds the filter bar that sits at the top of the map.
+  // Wrapped in Material so dropdowns and chips have a proper surface and
   // Flutter's gesture system takes priority over the Mapbox MapWidget below.
-  Widget _buildMapFilterBar() {
+  Widget _buildMapFilterBar(BuildContext context) {
+    final customLabel =
+        _selectedDateFilter == _DateFilter.custom && _customDateRange != null
+            ? '${DateFormat('MMM d').format(_customDateRange!.start)} – '
+                '${DateFormat('MMM d').format(_customDateRange!.end)}'
+            : 'Custom';
+
     return Material(
       color: Colors.transparent,
       child: Container(
         margin: const EdgeInsets.all(8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
@@ -262,77 +273,140 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ],
         ),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<EventCategory?>(
-            value: _selectedMapCategory,
-            isExpanded: true,
-            // Shown when nothing is selected (all categories visible).
-            hint: const Row(
-              children: [
-                Icon(Icons.filter_list, color: Colors.orange, size: 18),
-                SizedBox(width: 8),
-                Text('All Categories',
-                    style: TextStyle(fontSize: 14, color: Colors.black87)),
-              ],
-            ),
-            items: [
-              // "All" option resets back to showing every category.
-              const DropdownMenuItem<EventCategory?>(
-                value: null,
-                child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Category dropdown ──────────────────────────────────────────
+            DropdownButtonHideUnderline(
+              child: DropdownButton<EventCategory?>(
+                value: _selectedMapCategory,
+                isExpanded: true,
+                hint: const Row(
                   children: [
-                    Icon(Icons.event, color: Colors.orange, size: 16),
+                    Icon(Icons.filter_list, color: Colors.orange, size: 18),
                     SizedBox(width: 8),
                     Text('All Categories',
-                        style: TextStyle(fontSize: 14)),
+                        style: TextStyle(fontSize: 14, color: Colors.black87)),
                   ],
                 ),
-              ),
-              // One item per EventCategory enum value.
-              ...EventCategory.values.map((cat) {
-                return DropdownMenuItem<EventCategory?>(
-                  value: cat,
-                  child: Row(
-                    children: [
-                      Icon(cat.icon, color: cat.color, size: 16),
-                      const SizedBox(width: 8),
-                      Text(cat.label,
-                          style: const TextStyle(fontSize: 14)),
-                    ],
+                items: [
+                  const DropdownMenuItem<EventCategory?>(
+                    value: null,
+                    child: Row(
+                      children: [
+                        Icon(Icons.event, color: Colors.orange, size: 16),
+                        SizedBox(width: 8),
+                        Text('All Categories',
+                            style: TextStyle(fontSize: 14)),
+                      ],
+                    ),
                   ),
-                );
-              }),
-            ],
-            onChanged: _onCategorySelected,
-          ),
+                  ...EventCategory.values.map((cat) {
+                    return DropdownMenuItem<EventCategory?>(
+                      value: cat,
+                      child: Row(
+                        children: [
+                          Icon(cat.icon, color: cat.color, size: 16),
+                          const SizedBox(width: 8),
+                          Text(cat.label, style: const TextStyle(fontSize: 14)),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+                onChanged: _onCategorySelected,
+              ),
+            ),
+            const Divider(height: 1),
+            const SizedBox(height: 4),
+            // ── Date filter chips ──────────────────────────────────────────
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _mapDateChip(null, 'All Dates'),
+                  _mapDateChip(_DateFilter.today, 'Today'),
+                  _mapDateChip(_DateFilter.thisWeek, 'This Week'),
+                  _mapDateChip(_DateFilter.thisMonth, 'This Month'),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: ChoiceChip(
+                      label: Text(customLabel),
+                      selected: _selectedDateFilter == _DateFilter.custom,
+                      onSelected: (_) => _pickMapCustomRange(context),
+                      selectedColor: Colors.orange,
+                      labelStyle: TextStyle(
+                        color: _selectedDateFilter == _DateFilter.custom
+                            ? Colors.white
+                            : Colors.black87,
+                        fontSize: 11,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      showCheckmark: false,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // Called when the style is loaded; set up a GeoJSON source + line layer for routes.
+  Widget _mapDateChip(_DateFilter? filter, String label) {
+    final selected = _selectedDateFilter == filter;
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) {
+          setState(() {
+            _selectedDateFilter = selected ? null : filter;
+            _customDateRange = null;
+          });
+          _redrawMarkers(_cachedEvents);
+        },
+        selectedColor: Colors.orange,
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : Colors.black87,
+          fontSize: 11,
+        ),
+        visualDensity: VisualDensity.compact,
+        showCheckmark: false,
+      ),
+    );
+  }
+
+  Future<void> _pickMapCustomRange(BuildContext context) async {
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+      initialDateRange: _customDateRange,
+      builder: (context, child) => Theme(
+        data: ThemeData.light().copyWith(
+          colorScheme: const ColorScheme.light(primary: Colors.orange),
+        ),
+        child: child!,
+      ),
+    );
+    if (range != null) {
+      setState(() {
+        _selectedDateFilter = _DateFilter.custom;
+        _customDateRange = range;
+      });
+      _redrawMarkers(_cachedEvents);
+    }
+  }
+
+  // Called when the style is fully loaded. Annotation managers must be created
+  // here (not in _onMapCreated) because Mapbox wipes them on every style reload.
   Future<void> _onStyleLoaded(StyleLoadedEventData eventData) async {
     if (_mapboxMap == null) return;
 
-    // 1) Add an (initially empty) GeoJSON source for the route.
-    await _mapboxMap!.style.addSource(
-      GeoJsonSource(
-        id: _routeSourceId,
-        data: '{"type":"FeatureCollection","features":[]}',
-      ),
-    );
-
-    // 2) Add a LineLayer that draws whatever geometry is in the route source.
-    await _mapboxMap!.style.addLayer(
-      LineLayer(
-        id: _routeLayerId,
-        sourceId: _routeSourceId,
-        lineColor: Colors.blue.toARGB32(),
-        lineWidth: 4.0,
-      ),
-    );
-
-    // 3) Create (or recreate) the circle annotation manager here instead of
+    // Create (or recreate) the circle annotation manager here instead of
     // in _onMapCreated. On iOS, Mapbox wipes annotation managers whenever the
     // style reloads — which happens on pan, zoom, and tab switches. Recreating
     // here guarantees the manager is always fresh after any style load.
@@ -359,70 +433,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Heart of the walking path logic:
-  // - Call Mapbox Directions API with the walking profile
-  // - Extract the route geometry (GeoJSON LineString)
-  // - Wrap it in a FeatureCollection
-  // - Feed it into the GeoJsonSource so the LineLayer draws it
-  Future<void> _showSampleRoute() async {
-    if (_mapboxMap == null) return;
-
-    // Hard-coded origin and destination (lng, lat) near campus
-    const startLng = -98.17355;
-    const startLat = 26.30597;
-
-    const endLng = -98.17636;
-    const endLat = 26.30722;
-
-    // Same public access token you used for the map
-    final accessToken =
-        "pk.eyJ1IjoidXRlcG1pbmVyejI1NTIiLCJhIjoiY21sdmcxYWcyMDg5bDNocG82a2N5MmF6biJ9.Pd77daI-yM4ryGhS8G0mlQ";
-
-    // Directions API URL:
-    // - profile: mapbox/walking (pedestrian routing profile) [[routing profile](https://docs.mapbox.com/help/glossary/routing-profile/)]
-    // - coordinates: startLng,startLat;endLng,endLat
-    // - geometries=geojson so the route geometry is returned as a GeoJSON LineString
-    //   which you can plug directly into a GeoJSON source. [[Directions playground](https://docs.mapbox.com/playground/directions/)]
-    final url =
-        "https://api.mapbox.com/directions/v5/mapbox/walking/"
-        "$startLng,$startLat;$endLng,$endLat"
-        "?geometries=geojson&access_token=$accessToken";
-
-    // Make the HTTP GET request to the Directions API
-    final response = await http.get(Uri.parse(url));
-
-    if (response.statusCode != 200) {
-      // Basic error logging if the API call fails
-      print("Directions API error: ${response.body}");
-      return;
-    }
-
-    // Parse the JSON response
-    final data = json.decode(response.body);
-
-    // Directions response structure:
-    // routes[0].geometry holds the route geometry.
-    // With geometries=geojson, this is a GeoJSON LineString object. [[Navigation APIs webinar](https://www.youtube.com/watch?v=kfrR0OLBcNE)]
-    final geometry = data["routes"][0]["geometry"];
-
-    // Wrap the LineString geometry in a FeatureCollection so it matches
-    // what a GeoJsonSource expects. [[GeoJSON line example](https://docs.mapbox.com/flutter/maps/examples/geojson_line/)]
-    final routeGeoJson = json.encode({
-      "type": "FeatureCollection",
-      "features": [
-        {"type": "Feature", "properties": {}, "geometry": geometry},
-      ],
-    });
-
-    // Update the existing GeoJsonSource's "data" property with the new route.
-    // The LineLayer is already wired to this source, so the map updates automatically. [[Work with layers](https://docs.mapbox.com/flutter/maps/guides/styles/work-with-layers/#add-a-layer-at-runtime)]
-    await _mapboxMap!.style.setStyleSourceProperty(
-      _routeSourceId,
-      "data",
-      routeGeoJson,
-    );
-  }
-
   // Dialog to add a new event marker at the tapped coordinates
   Future<void> _showAddDialog(Position coords) async {
     String name = '';
@@ -430,6 +440,12 @@ class _MapScreenState extends State<MapScreen> {
     image_picker.XFile? pickedImage;
     bool isFree = true;
     EventCategory category = EventCategory.other;
+    DateTime? selectedDate;
+    TimeOfDay? startTime;
+    TimeOfDay? endTime;
+    String? dateError;
+    String? startTimeError;
+    String? endTimeError;
 
     await showDialog(
       context: context,
@@ -464,7 +480,141 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                   onChanged: (val) => desc = val,
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
+                // ── Date ────────────────────────────────────────────────
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.calendar_today,
+                      color: dateError != null ? Colors.red : Colors.orange),
+                  title: Text(
+                    selectedDate == null
+                        ? 'Event Date *'
+                        : DateFormat('MMM d, yyyy').format(selectedDate!),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: selectedDate == null
+                          ? (dateError != null ? Colors.red : Colors.grey)
+                          : Colors.black87,
+                    ),
+                  ),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2030),
+                      builder: (context, child) => Theme(
+                        data: ThemeData.light().copyWith(
+                          colorScheme: const ColorScheme.light(
+                              primary: Colors.orange),
+                        ),
+                        child: child!,
+                      ),
+                    );
+                    if (picked != null) {
+                      setDialogState(() {
+                        selectedDate = picked;
+                        dateError = null;
+                      });
+                    }
+                  },
+                ),
+                if (dateError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 4),
+                    child: Text(dateError!,
+                        style: const TextStyle(color: Colors.red, fontSize: 12)),
+                  ),
+                // ── Start time ───────────────────────────────────────────
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.access_time,
+                      color: startTimeError != null ? Colors.red : Colors.orange),
+                  title: Text(
+                    startTime == null
+                        ? 'Start Time *'
+                        : startTime!.format(context),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: startTime == null
+                          ? (startTimeError != null ? Colors.red : Colors.grey)
+                          : Colors.black87,
+                    ),
+                  ),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: startTime ?? TimeOfDay.now(),
+                      builder: (context, child) => Theme(
+                        data: ThemeData.light().copyWith(
+                          colorScheme: const ColorScheme.light(
+                              primary: Colors.orange),
+                        ),
+                        child: child!,
+                      ),
+                    );
+                    if (picked != null) {
+                      setDialogState(() {
+                        startTime = picked;
+                        startTimeError = null;
+                      });
+                    }
+                  },
+                ),
+                if (startTimeError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 4),
+                    child: Text(startTimeError!,
+                        style: const TextStyle(color: Colors.red, fontSize: 12)),
+                  ),
+                // ── End time ─────────────────────────────────────────────
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.access_time_filled,
+                      color: endTimeError != null ? Colors.red : Colors.orange),
+                  title: Text(
+                    endTime == null
+                        ? 'End Time *'
+                        : endTime!.format(context),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: endTime == null
+                          ? (endTimeError != null ? Colors.red : Colors.grey)
+                          : Colors.black87,
+                    ),
+                  ),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: endTime ??
+                          (startTime != null
+                              ? TimeOfDay(
+                                  hour: (startTime!.hour + 1) % 24,
+                                  minute: startTime!.minute)
+                              : TimeOfDay.now()),
+                      builder: (context, child) => Theme(
+                        data: ThemeData.light().copyWith(
+                          colorScheme: const ColorScheme.light(
+                              primary: Colors.orange),
+                        ),
+                        child: child!,
+                      ),
+                    );
+                    if (picked != null) {
+                      setDialogState(() {
+                        endTime = picked;
+                        endTimeError = null;
+                      });
+                    }
+                  },
+                ),
+                if (endTimeError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 4),
+                    child: Text(endTimeError!,
+                        style: const TextStyle(color: Colors.red, fontSize: 12)),
+                  ),
+                const SizedBox(height: 4),
                 InputDecorator(
                   decoration: const InputDecoration(
                     labelText: 'Category',
@@ -554,8 +704,31 @@ class _MapScreenState extends State<MapScreen> {
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: () {
+                        bool hasError = false;
+                        if (selectedDate == null) {
+                          setDialogState(() => dateError = 'Required');
+                          hasError = true;
+                        }
+                        if (startTime == null) {
+                          setDialogState(() => startTimeError = 'Required');
+                          hasError = true;
+                        }
+                        if (endTime == null) {
+                          setDialogState(() => endTimeError = 'Required');
+                          hasError = true;
+                        }
+                        if (hasError) return;
+                        final eventStart = DateTime(
+                          selectedDate!.year, selectedDate!.month, selectedDate!.day,
+                          startTime!.hour, startTime!.minute,
+                        );
+                        final eventEnd = DateTime(
+                          selectedDate!.year, selectedDate!.month, selectedDate!.day,
+                          endTime!.hour, endTime!.minute,
+                        );
                         Navigator.pop(context);
-                        _saveEvent(coords, name, desc, pickedImage, isFree, category);
+                        _saveEvent(coords, name, desc, pickedImage, isFree,
+                            category, eventStart, eventEnd);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.orange,
@@ -577,7 +750,8 @@ class _MapScreenState extends State<MapScreen> {
   // pick up the new event and draw it on the map.
   Future<void> _saveEvent(
       Position coords, String name, String desc,
-      image_picker.XFile? imageFile, bool isFree, EventCategory category) async {
+      image_picker.XFile? imageFile, bool isFree, EventCategory category,
+      DateTime? eventDate, DateTime? eventEndDate) async {
     String? imageUrl;
     if (imageFile != null) {
       imageUrl = await _firestoreService.uploadEventImage(imageFile);
@@ -590,6 +764,9 @@ class _MapScreenState extends State<MapScreen> {
       imageUrl: imageUrl,
       isFree: isFree,
       category: category,
+      eventDate: eventDate,
+      eventEndDate: eventEndDate,
+      createdBy: FirebaseAuth.instance.currentUser?.uid,
     );
     await _firestoreService.addEvent(event);
   }

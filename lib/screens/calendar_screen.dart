@@ -31,12 +31,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
     _eventsSubscription = _firestoreService.getEventsStream().listen((events) {
       final Map<DateTime, List<Event>> grouped = {};
       for (final event in events) {
-        // Normalize to midnight so map keys match regardless of time-of-day.
-        final day = DateTime(
-          event.createdAt.year,
-          event.createdAt.month,
-          event.createdAt.day,
-        );
+        // Use eventDate (when the event takes place) if set, otherwise
+        // fall back to createdAt. Normalize to midnight so keys always match.
+        final source = event.eventDate ?? event.createdAt;
+        final day = DateTime(source.year, source.month, source.day);
         grouped.putIfAbsent(day, () => []).add(event);
       }
       setState(() => _eventsByDay = grouped);

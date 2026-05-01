@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -41,13 +42,19 @@ class _LoginScreenState extends State<LoginScreen> {
       error = await _authService.signIn(email: email, password: password);
     }
 
-    setState(() {
-      _isLoading = false;
-      _errorMessage = error;
-    });
+    if (!mounted) return;
 
-    // If successful (error is null), navigation happens automatically
-    // via StreamBuilder in main.dart
+    if (error == null) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (_) => false,
+      );
+    } else {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = error;
+      });
+    }
   }
 
   @override
