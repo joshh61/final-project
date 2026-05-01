@@ -20,6 +20,13 @@ class Event {
   // but we convert it to Dart's DateTime for easier use in the app.
   final DateTime createdAt;
 
+  // When the event starts. Optional — older events won't have it.
+  // Used by the date filter feature. Falls back to createdAt when null.
+  final DateTime? eventDate;
+
+  // When the event ends. Optional — only set on newer events.
+  final DateTime? eventEndDate;
+
   // How many unique users have hyped this event.
   final int hypeCount;
 
@@ -44,6 +51,10 @@ class Event {
 
   // Optional Firebase Storage download URL for a photo attached to this event.
   final String? imageUrl;
+
+  // UID of the user who created this event. Used to show the delete button
+  // only to the creator. Null for events created before this field was added.
+  final String? createdBy;
 
   // Whether the event is free to attend. Defaults to true.
   // Stored as a boolean field in Firestore; old docs without this field
@@ -70,6 +81,9 @@ class Event {
     this.imageUrl,
     this.isFree = true,
     this.category = EventCategory.other,
+    this.eventDate,
+    this.eventEndDate,
+    this.createdBy,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Converts this Event object into a Map that Firestore can store.
@@ -90,8 +104,11 @@ class Event {
       'averageRating': averageRating,
       'reviewCount': reviewCount,
       if (imageUrl != null) 'imageUrl': imageUrl,
+      if (createdBy != null) 'createdBy': createdBy,
       'isFree': isFree,
       'category': category.label,
+      if (eventDate != null) 'eventDate': Timestamp.fromDate(eventDate!),
+      if (eventEndDate != null) 'eventEndDate': Timestamp.fromDate(eventEndDate!),
     };
   }
 
@@ -118,8 +135,15 @@ class Event {
       averageRating: (data['averageRating'] ?? 0).toDouble(),
       reviewCount: (data['reviewCount'] ?? 0) as int,
       imageUrl: data['imageUrl'] as String?,
+      createdBy: data['createdBy'] as String?,
       isFree: (data['isFree'] as bool?) ?? true,
       category: EventCategory.fromString(data['category'] as String?),
+      eventDate: data['eventDate'] != null
+          ? (data['eventDate'] as Timestamp).toDate()
+          : null,
+      eventEndDate: data['eventEndDate'] != null
+          ? (data['eventEndDate'] as Timestamp).toDate()
+          : null,
     );
   }
 }
