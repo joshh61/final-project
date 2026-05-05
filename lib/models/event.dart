@@ -15,7 +15,6 @@ class Event {
   final String description;
   final double latitude;
   final double longitude;
-
   // When the event was created. Firestore has its own Timestamp type,
   // but we convert it to Dart's DateTime for easier use in the app.
   final DateTime createdAt;
@@ -108,7 +107,8 @@ class Event {
       'isFree': isFree,
       'category': category.label,
       if (eventDate != null) 'eventDate': Timestamp.fromDate(eventDate!),
-      if (eventEndDate != null) 'eventEndDate': Timestamp.fromDate(eventEndDate!),
+      if (eventEndDate != null)
+        'eventEndDate': Timestamp.fromDate(eventEndDate!),
     };
   }
 

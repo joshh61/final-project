@@ -15,6 +15,7 @@ import 'package:intl/intl.dart';
 import 'services/firestore_service.dart';
 import 'models/event.dart';
 import 'models/event_category.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum _DateFilter { today, thisWeek, thisMonth, custom }
 
@@ -58,6 +59,17 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  static const int _maxEventTitleLength = 30;
+  static const int _maxEventDescriptionLength = 225;
+
+  bool _isWithinEventCreationBounds(Position coords) {
+    //for event creation, technicality (not precise but accurate)
+    return coords.lat >= 26.30273 &&
+        coords.lat <= 26.31152 &&
+        coords.lng >= -98.18600 &&
+        coords.lng <= -98.16800;
+  }
+
   MapboxMap? _mapboxMap;
 
   // Manager for circle annotations (your event markers)
@@ -72,6 +84,10 @@ class _MapScreenState extends State<MapScreen> {
 
   // Maps circle annotation ID → Event object for tap lookups
   final Map<String, Event> _circleToEvent = {};
+
+  // IDs for the route source/layer (must be unique in the style).
+  static const _routeSourceId = "route-source";
+  static const _routeLayerId = "route-layer";
 
   // Last batch of events from Firestore — cached so the filter dropdown can
   // redraw markers without waiting for the next Firestore stream emission.
@@ -131,7 +147,9 @@ class _MapScreenState extends State<MapScreen> {
           MapWidget(
             cameraOptions: CameraOptions(
               // Initial camera position over campus
-              center: Point(coordinates: Position(utrgvCenterLng, utrgvCenterLat)),
+              center: Point(
+                coordinates: Position(utrgvCenterLng, utrgvCenterLat),
+              ),
               zoom: 15.5,
             ),
             // Called once the MapboxMap object is ready
@@ -141,6 +159,16 @@ class _MapScreenState extends State<MapScreen> {
             // Tap on the map to add a new event marker
             onTapListener: (ctx) {
               final coords = ctx.point.coordinates;
+              if (!_isWithinEventCreationBounds(coords)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Events can only be created inside campus event bounds',
+                    ),
+                  ),
+                );
+                return;
+              }
               _showAddDialog(coords);
             },
           ),
@@ -219,9 +247,12 @@ class _MapScreenState extends State<MapScreen> {
     _circleToEvent.clear();
 
     // Apply both category and date filters.
-    final visible = events.where((e) =>
-        (_selectedMapCategory == null || e.category == _selectedMapCategory) &&
-        _matchesDateFilter(e));
+    final visible = events.where(
+      (e) =>
+          (_selectedMapCategory == null ||
+              e.category == _selectedMapCategory) &&
+          _matchesDateFilter(e),
+    );
 
     for (final event in visible) {
       // Color the circle by category — each category has its own distinct hue
@@ -253,9 +284,9 @@ class _MapScreenState extends State<MapScreen> {
   Widget _buildMapFilterBar(BuildContext context) {
     final customLabel =
         _selectedDateFilter == _DateFilter.custom && _customDateRange != null
-            ? '${DateFormat('MMM d').format(_customDateRange!.start)} – '
-                '${DateFormat('MMM d').format(_customDateRange!.end)}'
-            : 'Custom';
+        ? '${DateFormat('MMM d').format(_customDateRange!.start)} – '
+              '${DateFormat('MMM d').format(_customDateRange!.end)}'
+        : 'Custom';
 
     return Material(
       color: Colors.transparent,
@@ -285,8 +316,10 @@ class _MapScreenState extends State<MapScreen> {
                   children: [
                     Icon(Icons.filter_list, color: Colors.orange, size: 18),
                     SizedBox(width: 8),
-                    Text('All Categories',
-                        style: TextStyle(fontSize: 14, color: Colors.black87)),
+                    Text(
+                      'All Categories',
+                      style: TextStyle(fontSize: 14, color: Colors.black87),
+                    ),
                   ],
                 ),
                 items: [
@@ -296,8 +329,7 @@ class _MapScreenState extends State<MapScreen> {
                       children: [
                         Icon(Icons.event, color: Colors.orange, size: 16),
                         SizedBox(width: 8),
-                        Text('All Categories',
-                            style: TextStyle(fontSize: 14)),
+                        Text('All Categories', style: TextStyle(fontSize: 14)),
                       ],
                     ),
                   ),
@@ -406,6 +438,22 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _onStyleLoaded(StyleLoadedEventData eventData) async {
     if (_mapboxMap == null) return;
 
+    await _mapboxMap!.style.addSource(
+      GeoJsonSource(
+        id: _routeSourceId,
+        data: '{"type":"FeatureCollection","features":[]}',
+      ),
+    );
+
+    await _mapboxMap!.style.addLayer(
+      LineLayer(
+        id: _routeLayerId,
+        sourceId: _routeSourceId,
+        lineColor: Colors.blue.toARGB32(),
+        lineWidth: 4.0,
+      ),
+    );
+
     // Create (or recreate) the circle annotation manager here instead of
     // in _onMapCreated. On iOS, Mapbox wipes annotation managers whenever the
     // style reloads — which happens on pan, zoom, and tab switches. Recreating
@@ -451,7 +499,9 @@ class _MapScreenState extends State<MapScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -467,7 +517,10 @@ class _MapScreenState extends State<MapScreen> {
                   decoration: const InputDecoration(
                     labelText: "Event Name",
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                   onChanged: (val) => name = val,
                 ),
@@ -476,7 +529,10 @@ class _MapScreenState extends State<MapScreen> {
                   decoration: const InputDecoration(
                     labelText: "Description",
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                   onChanged: (val) => desc = val,
                 ),
@@ -484,8 +540,10 @@ class _MapScreenState extends State<MapScreen> {
                 // ── Date ────────────────────────────────────────────────
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.calendar_today,
-                      color: dateError != null ? Colors.red : Colors.orange),
+                  leading: Icon(
+                    Icons.calendar_today,
+                    color: dateError != null ? Colors.red : Colors.orange,
+                  ),
                   title: Text(
                     selectedDate == null
                         ? 'Event Date *'
@@ -506,7 +564,8 @@ class _MapScreenState extends State<MapScreen> {
                       builder: (context, child) => Theme(
                         data: ThemeData.light().copyWith(
                           colorScheme: const ColorScheme.light(
-                              primary: Colors.orange),
+                            primary: Colors.orange,
+                          ),
                         ),
                         child: child!,
                       ),
@@ -522,14 +581,18 @@ class _MapScreenState extends State<MapScreen> {
                 if (dateError != null)
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 4),
-                    child: Text(dateError!,
-                        style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    child: Text(
+                      dateError!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
                   ),
                 // ── Start time ───────────────────────────────────────────
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.access_time,
-                      color: startTimeError != null ? Colors.red : Colors.orange),
+                  leading: Icon(
+                    Icons.access_time,
+                    color: startTimeError != null ? Colors.red : Colors.orange,
+                  ),
                   title: Text(
                     startTime == null
                         ? 'Start Time *'
@@ -548,7 +611,8 @@ class _MapScreenState extends State<MapScreen> {
                       builder: (context, child) => Theme(
                         data: ThemeData.light().copyWith(
                           colorScheme: const ColorScheme.light(
-                              primary: Colors.orange),
+                            primary: Colors.orange,
+                          ),
                         ),
                         child: child!,
                       ),
@@ -564,18 +628,20 @@ class _MapScreenState extends State<MapScreen> {
                 if (startTimeError != null)
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 4),
-                    child: Text(startTimeError!,
-                        style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    child: Text(
+                      startTimeError!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
                   ),
                 // ── End time ─────────────────────────────────────────────
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.access_time_filled,
-                      color: endTimeError != null ? Colors.red : Colors.orange),
+                  leading: Icon(
+                    Icons.access_time_filled,
+                    color: endTimeError != null ? Colors.red : Colors.orange,
+                  ),
                   title: Text(
-                    endTime == null
-                        ? 'End Time *'
-                        : endTime!.format(context),
+                    endTime == null ? 'End Time *' : endTime!.format(context),
                     style: TextStyle(
                       fontSize: 14,
                       color: endTime == null
@@ -586,16 +652,19 @@ class _MapScreenState extends State<MapScreen> {
                   onTap: () async {
                     final picked = await showTimePicker(
                       context: context,
-                      initialTime: endTime ??
+                      initialTime:
+                          endTime ??
                           (startTime != null
                               ? TimeOfDay(
                                   hour: (startTime!.hour + 1) % 24,
-                                  minute: startTime!.minute)
+                                  minute: startTime!.minute,
+                                )
                               : TimeOfDay.now()),
                       builder: (context, child) => Theme(
                         data: ThemeData.light().copyWith(
                           colorScheme: const ColorScheme.light(
-                              primary: Colors.orange),
+                            primary: Colors.orange,
+                          ),
                         ),
                         child: child!,
                       ),
@@ -611,15 +680,20 @@ class _MapScreenState extends State<MapScreen> {
                 if (endTimeError != null)
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 4),
-                    child: Text(endTimeError!,
-                        style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    child: Text(
+                      endTimeError!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
                   ),
                 const SizedBox(height: 4),
                 InputDecorator(
                   decoration: const InputDecoration(
                     labelText: 'Category',
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                   ),
                   child: DropdownButtonHideUnderline(
                     child: DropdownButton<EventCategory>(
@@ -633,13 +707,17 @@ class _MapScreenState extends State<MapScreen> {
                             children: [
                               Icon(cat.icon, size: 16, color: cat.color),
                               const SizedBox(width: 8),
-                              Text(cat.label, style: const TextStyle(fontSize: 14)),
+                              Text(
+                                cat.label,
+                                style: const TextStyle(fontSize: 14),
+                              ),
                             ],
                           ),
                         );
                       }).toList(),
                       onChanged: (val) => setDialogState(
-                          () => category = val ?? EventCategory.other),
+                        () => category = val ?? EventCategory.other,
+                      ),
                     ),
                   ),
                 ),
@@ -651,7 +729,9 @@ class _MapScreenState extends State<MapScreen> {
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
-                        color: isFree ? Colors.green.shade700 : Colors.red.shade700,
+                        color: isFree
+                            ? Colors.green.shade700
+                            : Colors.red.shade700,
                       ),
                     ),
                     const Spacer(),
@@ -686,8 +766,9 @@ class _MapScreenState extends State<MapScreen> {
                     label: const Text("Add Photo"),
                     onPressed: () async {
                       final image = await image_picker.ImagePicker().pickImage(
-                          source: image_picker.ImageSource.gallery,
-                          imageQuality: 80);
+                        source: image_picker.ImageSource.gallery,
+                        imageQuality: 80,
+                      );
                       if (image != null) {
                         setDialogState(() => pickedImage = image);
                       }
@@ -704,6 +785,42 @@ class _MapScreenState extends State<MapScreen> {
                     const SizedBox(width: 8),
                     ElevatedButton(
                       onPressed: () {
+                        final trimmedName = name.trim();
+                        final trimmedDesc = desc.trim();
+
+                        if (trimmedName.isEmpty || trimmedDesc.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Title and description cannot be empty',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (trimmedName.length > _maxEventTitleLength) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Title must be $_maxEventTitleLength characters or less',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (trimmedDesc.length > _maxEventDescriptionLength) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Description must be $_maxEventDescriptionLength characters or less',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+
                         bool hasError = false;
                         if (selectedDate == null) {
                           setDialogState(() => dateError = 'Required');
@@ -719,16 +836,30 @@ class _MapScreenState extends State<MapScreen> {
                         }
                         if (hasError) return;
                         final eventStart = DateTime(
-                          selectedDate!.year, selectedDate!.month, selectedDate!.day,
-                          startTime!.hour, startTime!.minute,
+                          selectedDate!.year,
+                          selectedDate!.month,
+                          selectedDate!.day,
+                          startTime!.hour,
+                          startTime!.minute,
                         );
                         final eventEnd = DateTime(
-                          selectedDate!.year, selectedDate!.month, selectedDate!.day,
-                          endTime!.hour, endTime!.minute,
+                          selectedDate!.year,
+                          selectedDate!.month,
+                          selectedDate!.day,
+                          endTime!.hour,
+                          endTime!.minute,
                         );
                         Navigator.pop(context);
-                        _saveEvent(coords, name, desc, pickedImage, isFree,
-                            category, eventStart, eventEnd);
+                        _saveEvent(
+                          coords,
+                          trimmedName,
+                          trimmedDesc,
+                          pickedImage,
+                          isFree,
+                          category,
+                          eventStart,
+                          eventEnd,
+                        );
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.orange,
@@ -749,9 +880,31 @@ class _MapScreenState extends State<MapScreen> {
   // Save event to Firestore. The stream listener will automatically
   // pick up the new event and draw it on the map.
   Future<void> _saveEvent(
-      Position coords, String name, String desc,
-      image_picker.XFile? imageFile, bool isFree, EventCategory category,
-      DateTime? eventDate, DateTime? eventEndDate) async {
+    Position coords,
+    String name,
+    String desc,
+    image_picker.XFile? imageFile,
+    bool isFree,
+    EventCategory category,
+    DateTime? eventDate,
+    DateTime? eventEndDate,
+  ) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('events')
+          .where('createdBy', isEqualTo: uid)
+          .get();
+
+      if (snapshot.docs.length >= 3) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("You can only create 3 events")),
+        );
+        return;
+      }
+    }
+
     String? imageUrl;
     if (imageFile != null) {
       imageUrl = await _firestoreService.uploadEventImage(imageFile);
@@ -766,7 +919,7 @@ class _MapScreenState extends State<MapScreen> {
       category: category,
       eventDate: eventDate,
       eventEndDate: eventEndDate,
-      createdBy: FirebaseAuth.instance.currentUser?.uid,
+      createdBy: uid,
     );
     await _firestoreService.addEvent(event);
   }
