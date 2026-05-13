@@ -16,6 +16,7 @@ docs/
 
 # dotenv environment variables file
 .env*
+run.sh
 
 # Avoid committing generated Javascript files:
 *.dart.js
